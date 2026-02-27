@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "casm_vis_analysis"
+version = "0.1.0"
+description = "CASM correlator visibility analysis: fringe-stopping, delay correction, and diagnostics"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "astropy",
+    "matplotlib",
+    "casm_io",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+casm-autocorr = "casm_vis_analysis.cli:autocorr_main"
+casm-waterfall = "casm_vis_analysis.cli:waterfall_main"
+casm-fringe-stop = "casm_vis_analysis.cli:fringe_stop_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
