@@ -12,7 +12,7 @@ from matplotlib.colors import Normalize
 
 def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
                    antenna_labels, snap_adc_labels, split_max=16,
-                   output_dir=None):
+                   output_dir=None, diag_spectra=False, pub=False):
     """Plot waterfall matrix for active antennas.
 
     Parameters
@@ -35,6 +35,11 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
         Maximum antennas per figure.
     output_dir : str or Path, optional
         Save figures to this directory.
+    diag_spectra : bool
+        When True, diagonal cells show 1D time-averaged power spectrum
+        instead of 2D waterfall.
+    pub : bool
+        When True, save as PDF at 300 DPI instead of PNG at 150 DPI.
 
     Returns
     -------
@@ -79,10 +84,20 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
                     bl_vis = np.conj(bl_vis)
 
                 if i == j:
-                    # Diagonal: dB power
-                    power_db = 10 * np.log10(np.abs(bl_vis) + 1e-30)
-                    ax.pcolormesh(time_hours, freq_mhz, power_db.T,
-                                  cmap="viridis", shading="auto")
+                    if diag_spectra:
+                        # 1D time-averaged power spectrum
+                        power_db = 10 * np.log10(
+                            np.mean(np.abs(bl_vis), axis=0) + 1e-30
+                        )
+                        ax.plot(freq_mhz, power_db, linewidth=0.5)
+                        ax.set_xlabel("Freq (MHz)", fontsize=5)
+                        ax.set_ylabel("Power (dB)", fontsize=5)
+                        ax.grid(alpha=0.3)
+                    else:
+                        # Diagonal: dB power waterfall
+                        power_db = 10 * np.log10(np.abs(bl_vis) + 1e-30)
+                        ax.pcolormesh(time_hours, freq_mhz, power_db.T,
+                                      cmap="viridis", shading="auto")
                     ax.set_title(antenna_labels[i], fontsize=6)
                 else:
                     # Upper triangle: phase
@@ -109,8 +124,12 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
 
         if output_dir is not None:
             from pathlib import Path
-            path = Path(output_dir) / f"waterfall_group{g_idx + 1}.png"
-            fig.savefig(path, dpi=150, bbox_inches="tight")
+            if pub:
+                path = Path(output_dir) / f"waterfall_group{g_idx + 1}.pdf"
+                fig.savefig(path, dpi=300, bbox_inches="tight")
+            else:
+                path = Path(output_dir) / f"waterfall_group{g_idx + 1}.png"
+                fig.savefig(path, dpi=150, bbox_inches="tight")
             plt.close(fig)
 
         figs.append(fig)

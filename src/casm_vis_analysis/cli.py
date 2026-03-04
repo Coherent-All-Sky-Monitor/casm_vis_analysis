@@ -117,6 +117,10 @@ def waterfall_main(argv=None):
     parser = _common_parser("Plot upper-triangle waterfall matrix")
     parser.add_argument("--split-max", type=int, default=16,
                         help="Max antennas per figure (default: 16)")
+    parser.add_argument("--diag-spectra", action="store_true",
+                        help="Show 1D power spectra on diagonal instead of 2D autocorrelation")
+    parser.add_argument("--pub", action="store_true",
+                        help="Publication quality output (300 DPI, PDF)")
     args = parser.parse_args(argv)
 
     fmt = load_format(args.format)
@@ -147,7 +151,9 @@ def waterfall_main(argv=None):
                    antenna_labels=antenna_labels,
                    snap_adc_labels=snap_adc_labels,
                    split_max=args.split_max,
-                   output_dir=None if args.show else dirs["waterfall"])
+                   output_dir=None if args.show else dirs["waterfall"],
+                   diag_spectra=args.diag_spectra,
+                   pub=args.pub)
 
     if args.show:
         import matplotlib.pyplot as plt
