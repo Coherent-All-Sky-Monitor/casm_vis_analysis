@@ -1,6 +1,7 @@
 """CLI entry points for CASM visibility analysis.
 
-Three commands:
+Four commands:
+- casm-data-span: survey data directory and list observations
 - casm-autocorr: autocorrelation power spectra
 - casm-waterfall: upper-triangle waterfall matrix
 - casm-fringe-stop: fringe-stop + optional delay correction + diagnostics
@@ -36,6 +37,8 @@ def _common_parser(description):
                         help="Number of files to read")
     parser.add_argument("--skip-nfiles", type=int, default=0,
                         help="Number of files to skip before reading (requires --nfiles)")
+    parser.add_argument("--show", action="store_true",
+                        help="Show plots inline (e.g. Jupyter) instead of saving to disk")
     return parser
 
 
@@ -79,7 +82,8 @@ def autocorr_main(argv=None):
     auto_vis = vis[:, :, auto_indices]  # (T, F, n_ant)
     print(f"Autocorr shape: {auto_vis.shape}")
 
-    dirs = make_output_dir(args.output_dir, args.obs)
+    if not args.show:
+        dirs = make_output_dir(args.output_dir, args.obs)
 
     # Group by SNAP and plot
     snap_groups = {}
@@ -91,12 +95,17 @@ def autocorr_main(argv=None):
 
     for snap_id, (indices, snap_labels) in sorted(snap_groups.items()):
         snap_vis = auto_vis[:, :, indices]
-        path = dirs["autocorr"] / f"autocorr_snap{snap_id}.png"
+        path = None if args.show else dirs["autocorr"] / f"autocorr_snap{snap_id}.png"
         plot_autocorr(snap_vis, freq_mhz, snap_labels,
                       output_path=path, ncols=args.ncols,
                       time_unix=time_unix, snap_label=f"SNAP {snap_id}",
                       scale=args.scale)
-        print(f"Saved: {path}")
+        if not args.show:
+            print(f"Saved: {path}")
+
+    if args.show:
+        import matplotlib.pyplot as plt
+        plt.show()
 
 
 def waterfall_main(argv=None):
@@ -130,15 +139,21 @@ def waterfall_main(argv=None):
     antenna_labels = [ant.format_antenna(aid) for aid in active]
     snap_adc_labels = [f"S{s}A{a}" for s, a in (ant.snap_adc(aid) for aid in active)]
 
-    dirs = make_output_dir(args.output_dir, args.obs)
+    if not args.show:
+        dirs = make_output_dir(args.output_dir, args.obs)
 
     plot_waterfall(vis, freq_mhz, time_unix, fmt.nsig,
                    packet_indices=packet_indices,
                    antenna_labels=antenna_labels,
                    snap_adc_labels=snap_adc_labels,
                    split_max=args.split_max,
-                   output_dir=dirs["waterfall"])
-    print(f"Saved waterfalls to: {dirs['waterfall']}")
+                   output_dir=None if args.show else dirs["waterfall"])
+
+    if args.show:
+        import matplotlib.pyplot as plt
+        plt.show()
+    else:
+        print(f"Saved waterfalls to: {dirs['waterfall']}")
 
 
 def fringe_stop_main(argv=None):
@@ -268,24 +283,34 @@ def fringe_stop_main(argv=None):
             print(f"  delay_ns: {fit_params.get('delay_ns', 'N/A')}")
 
     # Output
-    dirs = make_output_dir(args.output_dir, args.obs)
+    dirs = None
+    if not args.show or args.save_npz:
+        dirs = make_output_dir(args.output_dir, args.obs)
 
     # Fringe diagnostic waterfalls
+    fringe_out = None if args.show else dirs["fringe_stop"]
     plot_fringe_diagnostic(
         panels, time_unix, freq_mhz, target_labels,
-        target_snaps, ref_snap, output_dir=dirs["fringe_stop"],
+        target_snaps, ref_snap, output_dir=fringe_out,
     )
-    print(f"Saved fringe diagnostics to: {dirs['fringe_stop']}")
+    if not args.show:
+        print(f"Saved fringe diagnostics to: {dirs['fringe_stop']}")
 
     # Phase vs freq
     phase_panels = [(label, data) for label, data in panels
                     if label != "Geometric"]
+    phase_out = None if args.show else dirs["fringe_stop"] / "phase_vs_freq.png"
     plot_phase_vs_freq(
         phase_panels, freq_mhz, baseline_labels=target_labels,
-        output_path=dirs["fringe_stop"] / "phase_vs_freq.png",
+        output_path=phase_out,
         time_unix=time_unix,
     )
-    print(f"Saved phase vs freq to: {dirs['fringe_stop']}")
+    if not args.show:
+        print(f"Saved phase vs freq to: {dirs['fringe_stop']}")
+
+    if args.show:
+        import matplotlib.pyplot as plt
+        plt.show()
 
     # Optional NPZ save
     if args.save_npz:
@@ -311,3 +336,77 @@ def fringe_stop_main(argv=None):
         npz_path = dirs["fringe_stop"] / "fringe_stop_results.npz"
         save_results(npz_path, **save_dict)
         print(f"Saved NPZ: {npz_path}")
+
+
+def data_span_main(argv=None):
+    """Survey a data directory and list all observations with time spans."""
+    import os
+    import re
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from casm_io.correlator import load_format, VisibilityReader
+
+    parser = argparse.ArgumentParser(
+        description="List observations in a data directory with time spans"
+    )
+    parser.add_argument("--data-dir", required=True,
+                        help="Directory with .dat files")
+    parser.add_argument("--format", required=True,
+                        help="Format name or path to JSON")
+    args = parser.parse_args(argv)
+
+    fmt = load_format(args.format)
+
+    # Discover unique obs_ids from filenames like YYYY-MM-DD-HH:MM:SS.dat.N
+    obs_pattern = re.compile(r"(\d{4}-\d{2}-\d{2}-\d{2}:\d{2}:\d{2})\.dat\.\d+")
+    obs_ids = set()
+    for fname in os.listdir(args.data_dir):
+        m = obs_pattern.match(fname)
+        if m:
+            obs_ids.add(m.group(1))
+
+    if not obs_ids:
+        print(f"No observations found in {args.data_dir}")
+        return
+
+    # Gather info for each obs_id
+    pacific = ZoneInfo("US/Pacific")
+    rows = []
+    for obs_id in sorted(obs_ids):
+        try:
+            reader = VisibilityReader(args.data_dir, obs_id, fmt)
+        except RuntimeError:
+            continue
+        n_files = reader.n_files
+        start_unix, end_unix = reader.time_span
+        duration_s = end_unix - start_unix
+        duration_hr = duration_s / 3600.0
+
+        utc_start = datetime.fromtimestamp(start_unix, tz=timezone.utc)
+        utc_end = datetime.fromtimestamp(end_unix, tz=timezone.utc)
+        pac_start = utc_start.astimezone(pacific)
+        pac_end = utc_end.astimezone(pacific)
+
+        dt_fmt = "%m-%d %H:%M:%S"
+        rows.append((
+            obs_id, n_files, duration_hr,
+            utc_start.strftime(dt_fmt),
+            utc_end.strftime(dt_fmt),
+            pac_start.strftime(dt_fmt),
+            pac_end.strftime(dt_fmt),
+        ))
+
+    # Sort by obs_id (already chronological)
+    rows.sort(key=lambda r: r[0])
+
+    # Print table
+    hdr = f"{'Obs ID':<22s} {'Files':>5s} {'Duration':>10s} {'UTC Time Span':<31s} {'Pacific Time Span':<31s}"
+    print(f"\nData directory: {args.data_dir}")
+    print(f"Format: {args.format} (dt = {fmt.dt_raw_s:.3f} s)")
+    print(f"Observations: {len(rows)}\n")
+    print(hdr)
+    print("-" * len(hdr))
+    for obs_id, n_files, dur_hr, utc_s, utc_e, pac_s, pac_e in rows:
+        print(f"{obs_id:<22s} {n_files:>5d} {dur_hr:>8.1f} h "
+              f"{utc_s} – {utc_e}  {pac_s} – {pac_e}")

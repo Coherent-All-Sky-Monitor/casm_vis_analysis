@@ -18,6 +18,7 @@ dependencies = [
 dev = ["pytest"]
 
 [project.scripts]
+casm-viz-data-span = "casm_vis_analysis.cli:data_span_main"
 casm-autocorr = "casm_vis_analysis.cli:autocorr_main"
 casm-waterfall = "casm_vis_analysis.cli:waterfall_main"
 casm-fringe-stop = "casm_vis_analysis.cli:fringe_stop_main"
