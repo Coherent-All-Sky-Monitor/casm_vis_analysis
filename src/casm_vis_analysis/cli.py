@@ -31,7 +31,7 @@ def _common_parser(description):
 
 def autocorr_main(argv=None):
     """Autocorrelation power spectrum plots."""
-    from casm_io.correlator import load_format, read_visibilities, AntennaMapping
+    from casm_io.correlator import load_format, VisibilityReader, AntennaMapping
     from casm_io.correlator.baselines import triu_flat_index
     from casm_vis_analysis.plotting.autocorr import plot_autocorr
     from casm_vis_analysis.output import make_output_dir
@@ -43,10 +43,8 @@ def autocorr_main(argv=None):
 
     fmt = load_format(args.format)
     ant = AntennaMapping.load(args.layout)
-    data = read_visibilities(
-        data_dir=args.data_dir, base_str=args.obs, fmt=fmt,
-        freq_order=args.freq_order,
-    )
+    reader = VisibilityReader(args.data_dir, args.obs, fmt)
+    data = reader.read(freq_order=args.freq_order)
 
     vis = data["vis"]
     freq_mhz = data["freq_mhz"]
@@ -84,7 +82,7 @@ def autocorr_main(argv=None):
 
 def waterfall_main(argv=None):
     """Waterfall matrix plot."""
-    from casm_io.correlator import load_format, read_visibilities, AntennaMapping
+    from casm_io.correlator import load_format, VisibilityReader, AntennaMapping
     from casm_vis_analysis.plotting.waterfall import plot_waterfall
     from casm_vis_analysis.output import make_output_dir
 
@@ -95,10 +93,8 @@ def waterfall_main(argv=None):
 
     fmt = load_format(args.format)
     ant = AntennaMapping.load(args.layout)
-    data = read_visibilities(
-        data_dir=args.data_dir, base_str=args.obs, fmt=fmt,
-        freq_order=args.freq_order,
-    )
+    reader = VisibilityReader(args.data_dir, args.obs, fmt)
+    data = reader.read(freq_order=args.freq_order)
 
     vis = data["vis"]
     freq_mhz = data["freq_mhz"]
@@ -116,7 +112,7 @@ def waterfall_main(argv=None):
 
 def fringe_stop_main(argv=None):
     """Fringe-stop, optional delay correction, and diagnostic plots."""
-    from casm_io.correlator import load_format, read_visibilities, AntennaMapping
+    from casm_io.correlator import load_format, VisibilityReader, AntennaMapping
     from casm_vis_analysis.sources import source_enu, find_transit_window
     from casm_vis_analysis.fringe_stop import (
         compute_baselines_enu, geometric_delay, fringe_stop,
@@ -156,8 +152,8 @@ def fringe_stop_main(argv=None):
     target_aids = [a for a in active if a != args.ref_ant]
     target_pidxs = [ant.packet_index(a) for a in target_aids]
 
-    data = read_visibilities(
-        data_dir=args.data_dir, base_str=args.obs, fmt=fmt,
+    reader = VisibilityReader(args.data_dir, args.obs, fmt)
+    data = reader.read(
         ref=ref_pidx, targets=target_pidxs,
         time_start=args.time_start, time_end=args.time_end,
         freq_order=args.freq_order,
