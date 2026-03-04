@@ -5,10 +5,12 @@ Fringe-stopping, delay correction, and diagnostic plotting for CASM correlator v
 ## Install
 
 ```bash
-pip install -e ".[dev]"
+pip install -e .
 ```
 
 You need `casm_io` installed first — get it from its own repo.
+
+For running tests, install with dev extras: `pip install -e ".[dev]"`
 
 ## What you need
 
