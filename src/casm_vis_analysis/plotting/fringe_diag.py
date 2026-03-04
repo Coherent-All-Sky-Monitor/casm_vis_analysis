@@ -78,10 +78,21 @@ def plot_fringe_diagnostic(panels, time_unix, freq_mhz, target_labels,
                 if col == 0:
                     ax.set_ylabel(target_labels[bl_idx], fontsize=7)
 
-        fig.suptitle(f"SNAP {rs} → {ts}", fontsize=10)
+        snap_title = f"SNAP {rs} \u2192 {ts}"
+        if time_unix is not None:
+            from casm_vis_analysis.plotting import format_time_range
+            fig.text(0.5, 0.99, format_time_range(time_unix),
+                     ha="center", va="top", fontsize=8, family="monospace",
+                     color="0.35")
+            fig.text(0.5, 0.955, snap_title,
+                     ha="center", va="top", fontsize=11, fontweight="bold")
+            top_margin = 0.90
+        else:
+            fig.suptitle(snap_title, fontsize=11, fontweight="bold")
+            top_margin = 0.93
         fig.supxlabel("Time (hours)")
         fig.supylabel("Freq (MHz)")
-        fig.tight_layout()
+        fig.tight_layout(rect=[0, 0, 1, top_margin])
 
         if output_dir is not None:
             from pathlib import Path

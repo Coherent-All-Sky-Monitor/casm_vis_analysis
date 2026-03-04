@@ -26,6 +26,16 @@ def _common_parser(description):
     parser.add_argument("--freq-order", default="descending",
                         choices=["ascending", "descending"],
                         help="Frequency axis order (default: descending)")
+    parser.add_argument("--time-start", default=None,
+                        help="Start time for data selection")
+    parser.add_argument("--time-end", default=None,
+                        help="End time for data selection")
+    parser.add_argument("--time-tz", default="UTC",
+                        help="Timezone for --time-start/--time-end (default: UTC)")
+    parser.add_argument("--nfiles", type=int, default=None,
+                        help="Number of files to read")
+    parser.add_argument("--skip-nfiles", type=int, default=0,
+                        help="Number of files to skip before reading (requires --nfiles)")
     return parser
 
 
@@ -39,15 +49,22 @@ def autocorr_main(argv=None):
     parser = _common_parser("Plot autocorrelation power spectra")
     parser.add_argument("--ncols", type=int, default=4,
                         help="Columns in plot grid (default: 4)")
+    parser.add_argument("--scale", default="dB", choices=["dB", "linear"],
+                        help="Power axis scale (default: dB)")
     args = parser.parse_args(argv)
 
     fmt = load_format(args.format)
     ant = AntennaMapping.load(args.layout)
     reader = VisibilityReader(args.data_dir, args.obs, fmt)
-    data = reader.read(freq_order=args.freq_order)
+    data = reader.read(
+        freq_order=args.freq_order,
+        time_start=args.time_start, time_end=args.time_end, time_tz=args.time_tz,
+        nfiles=args.nfiles, skip_nfiles=args.skip_nfiles,
+    )
 
     vis = data["vis"]
     freq_mhz = data["freq_mhz"]
+    time_unix = data["time_unix"]
     print(f"Loaded vis: {vis.shape}, freq: {freq_mhz.shape}")
 
     # Extract autocorrelations
@@ -76,7 +93,9 @@ def autocorr_main(argv=None):
         snap_vis = auto_vis[:, :, indices]
         path = dirs["autocorr"] / f"autocorr_snap{snap_id}.png"
         plot_autocorr(snap_vis, freq_mhz, snap_labels,
-                      output_path=path, ncols=args.ncols)
+                      output_path=path, ncols=args.ncols,
+                      time_unix=time_unix, snap_label=f"SNAP {snap_id}",
+                      scale=args.scale)
         print(f"Saved: {path}")
 
 
@@ -94,18 +113,30 @@ def waterfall_main(argv=None):
     fmt = load_format(args.format)
     ant = AntennaMapping.load(args.layout)
     reader = VisibilityReader(args.data_dir, args.obs, fmt)
-    data = reader.read(freq_order=args.freq_order)
+    data = reader.read(
+        freq_order=args.freq_order,
+        time_start=args.time_start, time_end=args.time_end, time_tz=args.time_tz,
+        nfiles=args.nfiles, skip_nfiles=args.skip_nfiles,
+    )
 
     vis = data["vis"]
     freq_mhz = data["freq_mhz"]
     time_unix = data["time_unix"]
     print(f"Loaded vis: {vis.shape}")
 
-    labels = [ant.format_antenna(aid) for aid in ant.active_antennas()]
+    # Build per-antenna arrays for active antennas only
+    active = ant.active_antennas()
+    packet_indices = [ant.packet_index(aid) for aid in active]
+    antenna_labels = [ant.format_antenna(aid) for aid in active]
+    snap_adc_labels = [f"S{s}A{a}" for s, a in (ant.snap_adc(aid) for aid in active)]
+
     dirs = make_output_dir(args.output_dir, args.obs)
 
     plot_waterfall(vis, freq_mhz, time_unix, fmt.nsig,
-                   antenna_labels=labels, split_max=args.split_max,
+                   packet_indices=packet_indices,
+                   antenna_labels=antenna_labels,
+                   snap_adc_labels=snap_adc_labels,
+                   split_max=args.split_max,
                    output_dir=dirs["waterfall"])
     print(f"Saved waterfalls to: {dirs['waterfall']}")
 
@@ -131,10 +162,6 @@ def fringe_stop_main(argv=None):
                         help="Fringe-stop sign convention (default: -1)")
     parser.add_argument("--min-alt", type=float, default=10.0,
                         help="Minimum source altitude in degrees (default: 10)")
-    parser.add_argument("--time-start", default=None,
-                        help="Start time for data loading")
-    parser.add_argument("--time-end", default=None,
-                        help="End time for data loading")
     parser.add_argument("--save-npz", action="store_true",
                         help="Save results to NPZ")
     parser.add_argument("--rfi-mask", default=None,
@@ -155,7 +182,8 @@ def fringe_stop_main(argv=None):
     reader = VisibilityReader(args.data_dir, args.obs, fmt)
     data = reader.read(
         ref=ref_pidx, targets=target_pidxs,
-        time_start=args.time_start, time_end=args.time_end,
+        time_start=args.time_start, time_end=args.time_end, time_tz=args.time_tz,
+        nfiles=args.nfiles, skip_nfiles=args.skip_nfiles,
         freq_order=args.freq_order,
     )
 
@@ -255,6 +283,7 @@ def fringe_stop_main(argv=None):
     plot_phase_vs_freq(
         phase_panels, freq_mhz, baseline_labels=target_labels,
         output_path=dirs["fringe_stop"] / "phase_vs_freq.png",
+        time_unix=time_unix,
     )
     print(f"Saved phase vs freq to: {dirs['fringe_stop']}")
 

@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 
 
 def plot_autocorr(vis, freq_mhz, antenna_labels, time_avg=True,
-                  freq_mask=None, output_path=None, ncols=4):
+                  freq_mask=None, output_path=None, ncols=4,
+                  time_unix=None, snap_label=None, scale="dB"):
     """Plot autocorrelation power spectra on a grid.
 
     Parameters
@@ -36,25 +37,25 @@ def plot_autocorr(vis, freq_mhz, antenna_labels, time_avg=True,
     else:
         power = np.abs(vis)
 
-    power_db = 10 * np.log10(power + 1e-30)
-    n_ant = power_db.shape[1]
+    if scale == "dB":
+        plot_data = 10 * np.log10(power + 1e-30)
+        ylabel = "Power (dB)"
+    else:
+        plot_data = power
+        ylabel = "Power (linear)"
+
+    n_ant = plot_data.shape[1]
     nrows = int(np.ceil(n_ant / ncols))
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows),
                              squeeze=False, sharex=True, sharey=True)
 
-    freq_plot = freq_mhz.copy()
-    if freq_mask is not None:
-        freq_plot_masked = np.where(freq_mask, np.nan, freq_plot)
-    else:
-        freq_plot_masked = freq_plot
-
     for i in range(n_ant):
         ax = axes[i // ncols, i % ncols]
-        y = power_db[:, i].copy()
+        y = plot_data[:, i].copy()
         if freq_mask is not None:
             y[freq_mask] = np.nan
-        ax.plot(freq_plot, y, linewidth=0.5)
+        ax.plot(freq_mhz, y, linewidth=0.5)
         ax.set_title(antenna_labels[i], fontsize=9)
         ax.grid(True, alpha=0.3)
 
@@ -62,9 +63,29 @@ def plot_autocorr(vis, freq_mhz, antenna_labels, time_avg=True,
     for i in range(n_ant, nrows * ncols):
         axes[i // ncols, i % ncols].set_visible(False)
 
+    # Header: time range (subtle) + snap label (prominent), with spacing
+    # Scale header room by number of rows so short figures get more breathing room
+    has_time = time_unix is not None
+    has_snap = snap_label is not None
+    if has_time or has_snap:
+        header_inches = 0.7 if (has_time and has_snap) else 0.4
+        fig_h = fig.get_size_inches()[1]
+        top_margin = 1.0 - header_inches / fig_h
+        if has_time:
+            from casm_vis_analysis.plotting import format_time_range
+            fig.text(0.5, 0.99, format_time_range(time_unix),
+                     ha="center", va="top", fontsize=8, family="monospace",
+                     color="0.35")
+        if has_snap:
+            snap_y = 0.99 - 0.35 / fig_h if has_time else 0.99
+            fig.text(0.5, snap_y, snap_label,
+                     ha="center", va="top", fontsize=11, fontweight="bold")
+    else:
+        top_margin = 0.95
+
     fig.supxlabel("Frequency (MHz)")
-    fig.supylabel("Power (dB)")
-    fig.tight_layout()
+    fig.supylabel(ylabel)
+    fig.tight_layout(rect=[0, 0, 1, top_margin])
 
     if output_path is not None:
         fig.savefig(output_path, dpi=150, bbox_inches="tight")

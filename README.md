@@ -75,7 +75,6 @@ casm-fringe-stop \
 
 Other useful flags:
 - `--rfi-mask mask.npz` — boolean channel mask (NPZ key `mask`)
-- `--time-start` / `--time-end` — restrict time range
 
 Output in `output/<obs>/fringe_stop/` (diagnostic waterfalls, phase-vs-freq plot, optional NPZ).
 
@@ -172,6 +171,7 @@ output/<obs>/
 
 ## Good to know
 
+- **Data selection**: all three commands support `--time-start`, `--time-end`, `--time-tz` (default UTC), `--nfiles`, and `--skip-nfiles`
 - **Freq order**: descending (native) by default, `--freq-order ascending` to flip
 - **Fringe-stop sign**: `-1` removes geometric phase (default), `+1` adds it
 - **Delay models**: `linear` (slope fit) and `per_freq_phasor` (per-channel phase). Stack them with `--delay-model linear per_freq_phasor`

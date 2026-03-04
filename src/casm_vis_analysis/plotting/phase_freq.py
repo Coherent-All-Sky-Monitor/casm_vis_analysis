@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 def plot_phase_vs_freq(panels, freq_mhz, baseline_labels=None,
-                       unwrap=True, output_path=None):
+                       unwrap=True, output_path=None, time_unix=None):
     """Plot phase vs frequency for multiple processing stages.
 
     Parameters
@@ -59,8 +59,17 @@ def plot_phase_vs_freq(panels, freq_mhz, baseline_labels=None,
         ax.legend(fontsize=7)
         ax.grid(True, alpha=0.3)
 
+    if time_unix is not None:
+        from casm_vis_analysis.plotting import format_time_range
+        fig.text(0.5, 0.99, format_time_range(time_unix),
+                 ha="center", va="top", fontsize=8, family="monospace",
+                 color="0.35")
+        top_margin = 0.95
+    else:
+        top_margin = 0.98
+
     axes[-1, 0].set_xlabel("Frequency (MHz)")
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, top_margin])
 
     if output_path is not None:
         fig.savefig(output_path, dpi=150, bbox_inches="tight")
