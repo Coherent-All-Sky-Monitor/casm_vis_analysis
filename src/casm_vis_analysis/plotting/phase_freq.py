@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 
 
 def plot_phase_vs_freq(panels, freq_mhz, baseline_labels=None,
-                       unwrap=True, output_path=None, time_unix=None):
+                       unwrap=True, output_path=None, time_unix=None,
+                       time_mask=None):
     """Plot phase vs frequency for multiple processing stages.
 
     Parameters
@@ -22,6 +23,12 @@ def plot_phase_vs_freq(panels, freq_mhz, baseline_labels=None,
         Whether to unwrap phase.
     output_path : str or Path, optional
         Save figure to this path.
+    time_unix : ndarray, optional
+        Time axis for header annotation.
+    time_mask : ndarray of bool, shape (T,), optional
+        Mask selecting time samples to average over (e.g. transit window).
+        When provided, only these time samples are averaged for phase
+        extraction. Default: average all times.
 
     Returns
     -------
@@ -43,10 +50,14 @@ def plot_phase_vs_freq(panels, freq_mhz, baseline_labels=None,
     for bl_idx in range(n_bl):
         ax = axes[bl_idx, 0]
         for label, data in panels:
-            if data.ndim == 2:
-                vis_avg = np.mean(data, axis=0)
+            if time_mask is not None and data.ndim >= 2:
+                d = data[time_mask]
             else:
-                vis_avg = np.mean(data[:, :, bl_idx], axis=0)
+                d = data
+            if d.ndim == 2:
+                vis_avg = np.mean(d, axis=0)
+            else:
+                vis_avg = np.mean(d[:, :, bl_idx], axis=0)
 
             phase = np.angle(vis_avg)
             if unwrap:

@@ -256,9 +256,12 @@ def fringe_stop_main(argv=None):
     vis_fs = fs_result["vis_stopped"]
     print(f"Fringe-stopped vis shape: {vis_fs.shape}")
 
-    # Build diagnostic panels
-    target_labels = [ant.format_antenna(a) for a in target_aids]
-    ref_snap, _ = ant.snap_adc(args.ref_ant)
+    # Build diagnostic panels with cross-pair labels
+    ref_snap_id, ref_adc = ant.snap_adc(args.ref_ant)
+    ref_sac = f"S{ref_snap_id}A{ref_adc}"
+    target_labels = [f"{ref_sac} x S{s}A{a}"
+                     for s, a in (ant.snap_adc(aid) for aid in target_aids)]
+    ref_snap = ref_snap_id
     target_snaps = [ant.snap_adc(a)[0] for a in target_aids]
 
     panels = [
@@ -267,25 +270,24 @@ def fringe_stop_main(argv=None):
         ("Fringe-stopped", vis_fs),
     ]
 
-    # Optional delay correction
+    # Optional delay correction (each model applied independently to vis_fs)
     delay_results = {}
-    vis_current = vis_fs
+    vis_last_corrected = vis_fs
     if args.delay_model:
+        label_map = {
+            "linear": "Post-delay cal (linear)",
+            "per_freq_phasor": "Post-delay cal (per-freq phasor)",
+        }
         for model_name in args.delay_model:
             print(f"Fitting delay model: {model_name}")
-            fit_params = fit_delay(vis_current, freq_mhz, time_mask=time_mask,
-                                   model=model_name)
-            vis_corrected = apply_delay(vis_current, freq_mhz, fit_params,
-                                         model=model_name)
+            fit_params = fit_delay(vis_fs, freq_mhz, time_mask=time_mask,
+                                   freq_mask=freq_mask, model=model_name)
+            vis_corrected = apply_delay(vis_fs, freq_mhz, fit_params,
+                                        model=model_name)
             delay_results[model_name] = fit_params
-
-            label_map = {
-                "linear": "Post-linear",
-                "per_freq_phasor": "Post-phasor",
-            }
-            panels.append((label_map.get(model_name, f"Post-{model_name}"),
+            panels.append((label_map.get(model_name, f"Post-delay cal ({model_name})"),
                            vis_corrected))
-            vis_current = vis_corrected
+            vis_last_corrected = vis_corrected
             print(f"  delay_ns: {fit_params.get('delay_ns', 'N/A')}")
 
     # Output
@@ -310,6 +312,7 @@ def fringe_stop_main(argv=None):
         phase_panels, freq_mhz, baseline_labels=target_labels,
         output_path=phase_out,
         time_unix=time_unix,
+        time_mask=time_mask,
     )
     if not args.show:
         print(f"Saved phase vs freq to: {dirs['fringe_stop']}")
@@ -336,8 +339,8 @@ def fringe_stop_main(argv=None):
             for k, v in params.items():
                 if isinstance(v, np.ndarray):
                     save_dict[f"delay_{model_name}_{k}"] = v
-        if vis_current is not vis_fs:
-            save_dict["vis_delay_corrected"] = vis_current
+        if vis_last_corrected is not vis_fs:
+            save_dict["vis_delay_corrected"] = vis_last_corrected
 
         npz_path = dirs["fringe_stop"] / "fringe_stop_results.npz"
         save_results(npz_path, **save_dict)

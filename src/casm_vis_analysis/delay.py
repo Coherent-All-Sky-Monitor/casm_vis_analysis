@@ -14,7 +14,7 @@ import numpy as np
 # Linear delay model: phase(f) = slope * f + intercept
 # ---------------------------------------------------------------------------
 
-def linear_fit(vis_fs, freq_mhz, time_mask=None):
+def linear_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None):
     """Fit linear delay from phase vs frequency slope.
 
     Parameters
@@ -25,6 +25,10 @@ def linear_fit(vis_fs, freq_mhz, time_mask=None):
         Frequency axis in MHz.
     time_mask : ndarray of bool, shape (T,), optional
         Mask selecting time samples to average over.
+    freq_mask : ndarray of bool, shape (F,), optional
+        Mask selecting good frequency channels for fitting (True = good).
+        Phase is unwrapped and fit only on good channels, but the
+        correction is applied to ALL channels.
 
     Returns
     -------
@@ -45,19 +49,28 @@ def linear_fit(vis_fs, freq_mhz, time_mask=None):
     n_bl = vis_avg.shape[1]
     phase = np.angle(vis_avg)  # (F, n_bl)
 
-    # Unwrap phase along frequency axis
-    phase_uw = np.unwrap(phase, axis=0)
+    # Select good channels for fitting
+    if freq_mask is not None:
+        good_idx = np.where(freq_mask)[0]
+        freq_fit = freq_mhz[good_idx]
+        phase_fit = phase[good_idx]
+    else:
+        freq_fit = freq_mhz
+        phase_fit = phase
+
+    # Unwrap phase along frequency axis (only on good channels)
+    phase_uw = np.unwrap(phase_fit, axis=0)
 
     slopes = np.empty(n_bl)
     intercepts = np.empty(n_bl)
     r_squared = np.empty(n_bl)
 
     for i in range(n_bl):
-        coeffs = np.polyfit(freq_mhz, phase_uw[:, i], 1)
+        coeffs = np.polyfit(freq_fit, phase_uw[:, i], 1)
         slopes[i] = coeffs[0]
         intercepts[i] = coeffs[1]
         # R-squared
-        fit_vals = np.polyval(coeffs, freq_mhz)
+        fit_vals = np.polyval(coeffs, freq_fit)
         ss_res = np.sum((phase_uw[:, i] - fit_vals) ** 2)
         ss_tot = np.sum((phase_uw[:, i] - np.mean(phase_uw[:, i])) ** 2)
         r_squared[i] = 1.0 - ss_res / (ss_tot + 1e-30)
@@ -115,7 +128,7 @@ def linear_apply(vis, freq_mhz, fit_params):
 # Per-frequency phasor model: independent phase correction per channel
 # ---------------------------------------------------------------------------
 
-def phasor_fit(vis_fs, freq_mhz, time_mask=None):
+def phasor_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None):
     """Fit per-frequency phasor from time-averaged visibility.
 
     Parameters
@@ -177,7 +190,7 @@ DELAY_MODELS = {
 }
 
 
-def fit_delay(vis_fs, freq_mhz, time_mask=None, model="linear"):
+def fit_delay(vis_fs, freq_mhz, time_mask=None, freq_mask=None, model="linear"):
     """Fit delay using registered model.
 
     Parameters
@@ -188,6 +201,9 @@ def fit_delay(vis_fs, freq_mhz, time_mask=None, model="linear"):
         Frequency axis in MHz.
     time_mask : ndarray of bool, optional
         Time sample mask.
+    freq_mask : ndarray of bool, optional
+        Frequency channel mask (True = good). For linear model, fitting is
+        restricted to good channels. Phasor model ignores this.
     model : str
         Model name (default 'linear').
 
@@ -198,7 +214,7 @@ def fit_delay(vis_fs, freq_mhz, time_mask=None, model="linear"):
     """
     if model not in DELAY_MODELS:
         raise ValueError(f"Unknown model '{model}'. Available: {list(DELAY_MODELS)}")
-    return DELAY_MODELS[model]["fit"](vis_fs, freq_mhz, time_mask)
+    return DELAY_MODELS[model]["fit"](vis_fs, freq_mhz, time_mask, freq_mask)
 
 
 def apply_delay(vis, freq_mhz, fit_params, model="linear"):
