@@ -110,11 +110,17 @@ def fringe_stop(vis, freq_mhz, tau_s, sign=-1):
 
     vis_stopped = vis * correction
 
+    # Ensure geometric_phase matches vis shape (T, F, n_bl)
+    if phase.ndim == 2:
+        geo_phase = phase[:, :, np.newaxis]
+    else:
+        geo_phase = phase
+
     return {
         "vis_raw": vis,
         "vis_stopped": vis_stopped,
         "vis_for_calibration": vis_stopped,
-        "geometric_phase": np.squeeze(phase),
+        "geometric_phase": geo_phase,
         "tau_s": tau_s,
         "sign": sign,
         "freq_mhz": freq_mhz,

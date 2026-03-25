@@ -27,6 +27,7 @@ def make_output_dir(base_dir, obs_id):
         "autocorr": base / "autocorr",
         "waterfall": base / "waterfall",
         "fringe_stop": base / "fringe_stop",
+        "position_fit": base / "position_fit",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)

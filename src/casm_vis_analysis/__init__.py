@@ -7,6 +7,7 @@ _COMMANDS = {
     "casm-autocorr": "casm_vis_analysis.cli:autocorr_main",
     "casm-waterfall": "casm_vis_analysis.cli:waterfall_main",
     "casm-fringe-stop": "casm_vis_analysis.cli:fringe_stop_main",
+    "casm-fit-positions": "casm_vis_analysis.cli:fit_positions_main",
 }
 
 
