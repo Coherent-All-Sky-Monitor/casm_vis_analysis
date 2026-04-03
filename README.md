@@ -59,7 +59,6 @@ casm-autocorr \
   --format ~/software/dev/casm_io/casm_io/correlator/configs/layout_64ant.json \
   --layout ~/software/dev/antenna_layouts/antenna_layout_mar21.csv \
   --time-start '2026-03-21 12:00:00' --time-end '2026-03-21 13:00:00' --time-tz US/Pacific \
-  --nfiles 2 \
   --output-dir ./output
 ```
 
@@ -74,7 +73,6 @@ casm-waterfall \
   --format ~/software/dev/casm_io/casm_io/correlator/configs/layout_64ant.json \
   --layout ~/software/dev/antenna_layouts/antenna_layout_mar21.csv \
   --time-start '2026-03-21 12:00:00' --time-end '2026-03-21 13:00:00' --time-tz US/Pacific \
-  --nfiles 2 \
   --output-dir ./output
 ```
 
