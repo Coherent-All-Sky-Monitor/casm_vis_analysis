@@ -31,6 +31,23 @@ casm-viz-data-span \
   --format ~/software/dev/casm_io/casm_io/correlator/configs/layout_64ant.json
 ```
 
+### Selecting visibility data
+
+Every command requires an observation ID via `--obs`. Within that observation, you can select which data to analyse in two ways:
+
+**A) By file count:** Use `--nfiles` (number of files to read) and optionally `--skip-nfiles` (files to skip from the start).
+```bash
+--obs 2026-03-20-05:55:45 --nfiles 2 --skip-nfiles 10
+```
+
+**B) By time range:** Use `--time-start`, `--time-end`, and `--time-tz`.
+```bash
+--obs 2026-03-20-05:55:45 \
+--time-start '2026-03-21 12:00:00' --time-end '2026-03-21 13:00:00' --time-tz US/Pacific
+```
+
+If neither is specified, all files in the observation are read.
+
 ### casm-autocorr
 
 Plot autocorrelation power spectra grouped by SNAP board.
