@@ -2,13 +2,15 @@
 
 Fringe-stopping, delay correction, and diagnostic plotting for CASM correlator visibilities.
 
-## Install
+## Install 
 
 ```bash
 source ~/software/dev/casm_venvs/casm_offline_env/bin/activate
 cd /home/casm/software/dev/casm_vis_analysis
-pip install -e ".[dev]"
+pip install -e .
 ```
+
+
 
 ## CLI Commands
 
