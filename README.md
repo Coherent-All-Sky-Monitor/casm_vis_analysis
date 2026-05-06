@@ -23,15 +23,6 @@ Both routes call the same orchestration code in `casm_vis_analysis/runners.py` (
 
 CASM antenna positions and SNAP-to-ADC wiring live in CAsMan. This package pulls from CAsMan, applies a small overrides file, and produces an `AntennaMapping`-compatible CSV that every other CLI consumes via `--layout`.
 
-### Files
-
-| Path | Role |
-|---|---|
-| `~/software/dev/antenna_layouts/casm_snap_map.csv` | Trusted `(chassis, slot) -> (feng_id, snap_ip)`. CAsMan's `snap_boards` is ignored. |
-| `~/software/dev/antenna_layouts/casm_wiring_overrides.csv` | Manual patches: `add` / `disable` / `replace`, keyed by `(chassis, slot, adc)`. |
-| `~/software/dev/antenna_layouts/casm_wiring.csv` | **Generated.** CAsMan-derived + overrides. Don't hand-edit. |
-| `~/software/dev/antenna_layouts/antenna_layout_april_ovro.csv` | Lat/lon/alt per plank/element. |
-| `~/software/dev/antenna_layouts/casm_antenna_layout_may2026.csv` | **Generated.** What every CLI's `--layout` flag points at. |
 
 ### Pull from CAsMan and rebuild
 
