@@ -14,8 +14,8 @@ pip install -e .
 
 Every operation in this package exposes both:
 
-- A **Python API** (typed kwargs, returns a result dict) — preferred in notebooks and scripts.
-- A **CLI** with matching flags — preferred in cron, shell, or one-shot use.
+- A **Python API** (returns a result dict) 
+- A **CLI** with matching flags 
 
 Both routes call the same orchestration code in `casm_vis_analysis/runners.py` (autocorr / waterfall / fringe-stop) and `casm_vis_analysis/layout/` (sync / build).
 
@@ -55,7 +55,6 @@ run_build_layout(check_casman=True)      # build consumer CSV
 # returns {'output_csv': Path, 'n_total': 48, 'n_active': 23, ...}
 ```
 
-Conflict policy: **CAsMan wins**. Hand-edits to `casm_wiring.csv` do not survive `--apply` — encode them as override rows. Sync aborts if CAsMan returns < 5 chassis-1 P1 antennas (pass `--force` to override).
 
 ## Data selection: obs-mode vs time-range mode
 
