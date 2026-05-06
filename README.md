@@ -2,7 +2,7 @@
 
 Fringe-stopping, delay correction, antenna-layout pipeline, and diagnostic plotting for CASM correlator visibilities.
 
-## Install
+## Install 
 
 ```bash
 source ~/software/dev/casm_venvs/casm_offline_env/bin/activate

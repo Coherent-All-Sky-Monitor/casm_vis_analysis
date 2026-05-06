@@ -173,6 +173,66 @@ def _print_antenna_delays(ant, active_sorted, ref_ant, baseline_delay_ns, target
     print()
 
 
+def _print_geometry_table(target_labels, bl_enu, tau_s):
+    """Print baseline geometry summary table."""
+    bl_len = np.linalg.norm(bl_enu, axis=1)
+    tau_min_ns = tau_s.min(axis=0) * 1e9
+    tau_max_ns = tau_s.max(axis=0) * 1e9
+
+    print(f"\n{'Baseline':<22s} {'|BL| (m)':>10s} {'τ_geo min (ns)':>16s} {'τ_geo max (ns)':>16s}")
+    print("-" * 66)
+    for i, label in enumerate(target_labels):
+        print(f"  {label:<20s} {bl_len[i]:>10.2f} {tau_min_ns[i]:>+16.2f} {tau_max_ns[i]:>+16.2f}")
+    print()
+
+
+def _print_delay_table(target_labels, fit_params, model_name):
+    """Print delay fit summary table, dispatching on model name."""
+    if model_name == "linear":
+        delay_ns = np.atleast_1d(fit_params["delay_ns"])
+        r_sq = np.atleast_1d(fit_params["r_squared"])
+        print(f"\nDelay fit ({model_name}):")
+        print(f"  {'Baseline':<22s} {'delay (ns)':>12s} {'R²':>8s}")
+        print("  " + "-" * 44)
+        for i, label in enumerate(target_labels):
+            print(f"  {label:<22s} {delay_ns[i]:>+12.3f} {r_sq[i]:>8.3f}")
+    elif model_name == "per_freq_phasor":
+        phase = fit_params["phasor_phase"]  # (F,) or (F, n_bl)
+        if phase.ndim == 1:
+            phase = phase[:, np.newaxis]
+        mean_phi = np.mean(phase, axis=0)
+        std_phi = np.std(phase, axis=0)
+        print(f"\nDelay fit ({model_name}):")
+        print(f"  {'Baseline':<22s} {'mean φ (rad)':>14s} {'std φ (rad)':>13s}")
+        print("  " + "-" * 51)
+        for i, label in enumerate(target_labels):
+            print(f"  {label:<22s} {mean_phi[i]:>+14.3f} {std_phi[i]:>13.3f}")
+    print()
+
+
+def _print_antenna_delays(ant, active_sorted, ref_ant, baseline_delay_ns, target_aids):
+    """Print per-antenna delay decomposition table."""
+    from casm_vis_analysis.delay import build_delay_design_matrix, solve_antenna_delays
+
+    n_ant = len(active_sorted)
+    ref_idx = active_sorted.index(ref_ant)
+    baseline_pairs = [(ref_idx, active_sorted.index(a)) for a in target_aids]
+
+    A = build_delay_design_matrix(n_ant, baseline_pairs)
+    ant_delays = solve_antenna_delays(
+        np.atleast_1d(baseline_delay_ns), A, ref_ant_idx=ref_idx,
+    )
+
+    ref_label = ant.format_antenna(ref_ant)
+    print(f"Per-antenna delays (ref: {ref_label} = 0 ns):")
+    print(f"  {'Antenna':<14s} {'delay (ns)':>12s}")
+    print("  " + "-" * 28)
+    for i, aid in enumerate(active_sorted):
+        label = ant.format_antenna(aid)
+        print(f"  {label:<14s} {ant_delays[i]:>+12.3f}")
+    print()
+
+
 def fringe_stop_main(argv=None):
     """Fringe-stop, optional delay correction, and diagnostic plots."""
     from casm_vis_analysis.runners import run_fringe_stop
