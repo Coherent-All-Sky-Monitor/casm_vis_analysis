@@ -19,7 +19,7 @@ def linear_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None):
 
     Parameters
     ----------
-    vis_fs : ndarray, shape (T, F) or (T, F, n_bl)
+    vis_fs : ndarray, shape (T, F, n_bl)
         Fringe-stopped visibilities.
     freq_mhz : ndarray, shape (F,)
         Frequency axis in MHz.
@@ -97,7 +97,7 @@ def linear_apply(vis, freq_mhz, fit_params):
 
     Parameters
     ----------
-    vis : ndarray, shape (T, F) or (T, F, n_bl)
+    vis : ndarray, shape (T, F, n_bl)
         Visibilities to correct.
     freq_mhz : ndarray, shape (F,)
         Frequency axis in MHz.
@@ -133,7 +133,7 @@ def phasor_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None):
 
     Parameters
     ----------
-    vis_fs : ndarray, shape (T, F) or (T, F, n_bl)
+    vis_fs : ndarray, shape (T, F, n_bl)
         Fringe-stopped visibilities.
     freq_mhz : ndarray, shape (F,)
         Frequency axis (unused but kept for API consistency).
@@ -161,7 +161,7 @@ def phasor_apply(vis, freq_mhz, fit_params):
 
     Parameters
     ----------
-    vis : ndarray, shape (T, F) or (T, F, n_bl)
+    vis : ndarray, shape (T, F, n_bl)
         Visibilities to correct.
     freq_mhz : ndarray, shape (F,)
         Frequency axis (unused but kept for API consistency).

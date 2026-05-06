@@ -1,12 +1,26 @@
 """CASM correlator visibility analysis."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
+
+from casm_vis_analysis.runners import (
+    run_autocorr, run_waterfall, run_fringe_stop,
+)
+from casm_vis_analysis.layout import run_build_layout, run_sync_wiring
+
+__all__ = [
+    "run",
+    "run_autocorr", "run_waterfall", "run_fringe_stop",
+    "run_build_layout", "run_sync_wiring",
+]
 
 _COMMANDS = {
     "casm-viz-data-span": "casm_vis_analysis.cli:data_span_main",
     "casm-autocorr": "casm_vis_analysis.cli:autocorr_main",
     "casm-waterfall": "casm_vis_analysis.cli:waterfall_main",
     "casm-fringe-stop": "casm_vis_analysis.cli:fringe_stop_main",
+    "casm-fit-positions": "casm_vis_analysis.cli:fit_positions_main",
+    "casm-build-layout": "casm_vis_analysis.layout.build:main",
+    "casm-sync-wiring":  "casm_vis_analysis.layout.sync:main",
 }
 
 

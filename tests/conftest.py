@@ -23,7 +23,7 @@ def n_freq():
 @pytest.fixture
 def tiny_freq(n_freq):
     """Descending frequency axis in MHz (native order)."""
-    return np.linspace(468.75, 375.0, n_freq)
+    return np.linspace(484.375, 390.625, n_freq)
 
 
 @pytest.fixture
