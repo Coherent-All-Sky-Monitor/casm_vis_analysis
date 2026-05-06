@@ -70,10 +70,10 @@ from casm_vis_analysis import run_autocorr, run_waterfall, run_fringe_stop
 COMMON = dict(
     format     = '/home/casm/software/dev/casm_io/casm_io/correlator/configs/layout_64ant.json',
     layout     = '/home/casm/software/dev/antenna_layouts/casm_antenna_layout_may2026.csv',
-    time_start = '2026-04-29 12:00:00',
-    time_end   = '2026-04-29 18:00:00',
+    time_start = '2026-05-06 06:00:00',
+    time_end   = '2026-05-06 10:00:00',
     time_tz    = 'America/Los_Angeles',
-    data_root  = '/mnt/nvme3/data/casm',     # optional; defaults to /mnt
+    data_root  = '/mnt',     
     show       = True,                       # render inline (Jupyter); skip disk save
 )
 
@@ -107,28 +107,28 @@ Helpful kwargs across all three runners:
 casm-autocorr \
   --format ~/software/dev/casm_io/casm_io/correlator/configs/layout_64ant.json \
   --layout ~/software/dev/antenna_layouts/casm_antenna_layout_may2026.csv \
-  --time-start '2026-04-29 12:00:00' \
-  --time-end   '2026-04-29 18:00:00' \
+  --time-start '2026-05-06 06:00:00' \
+  --time-end   '2026-05-06 10:00:00' \
   --time-tz    America/Los_Angeles \
-  --data-root  /mnt/nvme3/data/casm \
+  --data-root  /mnt  \
   --output-dir ./output
 
 casm-waterfall \
   --format ~/software/dev/casm_io/casm_io/correlator/configs/layout_64ant.json \
   --layout ~/software/dev/antenna_layouts/casm_antenna_layout_may2026.csv \
-  --time-start '2026-04-29 12:00:00' \
-  --time-end   '2026-04-29 18:00:00' \
+  --time-start '2026-05-06 06:00:00' \
+  --time-end   '2026-05-06 10:00:00' \
   --time-tz    America/Los_Angeles \
-  --data-root  /mnt/nvme3/data/casm \
+  --data-root  /mnt \
   --output-dir ./output
 
 casm-fringe-stop \
   --format ~/software/dev/casm_io/casm_io/correlator/configs/layout_64ant.json \
   --layout ~/software/dev/antenna_layouts/casm_antenna_layout_may2026.csv \
-  --time-start '2026-04-29 12:00:00' \
-  --time-end   '2026-04-29 18:00:00' \
+  --time-start '2026-05-06 06:00:00' \
+  --time-end   '2026-05-06 10:00:00' \
   --time-tz    America/Los_Angeles \
-  --data-root  /mnt/nvme3/data/casm \
+  --data-root  /mnt \
   --ref-ant 10 --source sun --sign -1 \
   --delay-model linear --antenna-delays \
   --save-npz \
