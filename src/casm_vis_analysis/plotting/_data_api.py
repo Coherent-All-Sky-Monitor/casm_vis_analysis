@@ -3,9 +3,17 @@
 Each ``plot_*_data(data, ant, **knobs)`` shim unpacks the dict returned by
 ``read_visibilities``, builds antenna labels from the
 :class:`AntennaMapping`, and forwards to the array-level plotter.
+
+Display behaviour: when no ``output_path`` / ``output_dir`` is given, the
+wrappers call ``plt.show()`` so figures render in Jupyter inline AND in
+scripts (in script mode, opens a GUI window if a display is available;
+under Agg, the call is a no-op). The returned ``Figure`` object remains
+valid for the caller to inspect or save manually.
 """
 
 from __future__ import annotations
+
+import matplotlib.pyplot as plt
 
 from casm_vis_analysis.plotting.autocorr import plot_autocorr as _plot_autocorr_array
 from casm_vis_analysis.plotting.waterfall import plot_waterfall as _plot_waterfall_array
@@ -74,9 +82,12 @@ def plot_autocorr_data(data, ant, *, include_inactive=False, **kwargs):
                        for s, a in (ant.snap_adc(a) for a in aids)]
 
     auto_vis = vis[:, :, auto_idxs]
-    return _plot_autocorr_array(
+    fig = _plot_autocorr_array(
         auto_vis, freq_mhz, snap_adc_labels, **kwargs
     )
+    if kwargs.get("output_path") is None:
+        plt.show()
+    return fig
 
 
 def plot_waterfall_data(data, ant, *, include_inactive=False, **kwargs):
@@ -102,10 +113,13 @@ def plot_waterfall_data(data, ant, *, include_inactive=False, **kwargs):
     n_bl = vis.shape[-1]
     n_sig = int((-1 + (1 + 8 * n_bl) ** 0.5) / 2)
 
-    return _plot_waterfall_array(
+    figs = _plot_waterfall_array(
         vis, freq_mhz, time_unix, n_sig,
         packet_indices=pkt,
         antenna_labels=antenna_labels,
         snap_adc_labels=snap_adc_labels,
         **kwargs,
     )
+    if kwargs.get("output_dir") is None:
+        plt.show()
+    return figs
