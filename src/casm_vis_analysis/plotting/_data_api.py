@@ -76,14 +76,26 @@ def plot_autocorr_data(data, ant, *, include_inactive=False, **kwargs):
     df = ant.dataframe
     aids = (df["antenna_id"].tolist() if include_inactive
             else ant.active_antennas())
-    auto_idxs = [triu_flat_index(n_sig, ant.packet_index(a),
-                                 ant.packet_index(a)) for a in aids]
-    snap_adc_labels = [f"S{s}A{a}"
-                       for s, a in (ant.snap_adc(a) for a in aids)]
+    auto_idxs = [triu_flat_index(n_sig, ant.packet_index(aid),
+                                 ant.packet_index(aid)) for aid in aids]
+
+    # Enrich panel labels with plank/row when the mapping has them
+    # (e.g. "S0A0 N21E5" instead of just "S0A0").
+    has_grid = "row" in df.columns and "col" in df.columns
+    panel_labels = []
+    for aid in aids:
+        s, a = ant.snap_adc(aid)
+        label = f"S{s}A{a}"
+        if has_grid:
+            r = df.loc[df.antenna_id == aid].iloc[0]
+            row, col = r.get("row"), r.get("col")
+            if row and col:
+                label = f"{label} {row}{col}"
+        panel_labels.append(label)
 
     auto_vis = vis[:, :, auto_idxs]
     fig = _plot_autocorr_array(
-        auto_vis, freq_mhz, snap_adc_labels, **kwargs
+        auto_vis, freq_mhz, panel_labels, **kwargs
     )
     if kwargs.get("output_path") is None:
         plt.show()
