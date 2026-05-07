@@ -221,18 +221,24 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
     name. Returns a :class:`FringeStoppedData` ready for SVD calibration
     and imaging.
 
+    Reuses both inputs in place:
+      * The in-memory visibility data is sliced to ref<->target baselines;
+        no re-read from disk.
+      * The active set comes from ``ant.active_antennas()`` and so honours
+        ``ant.with_inactive([...])`` overrides set after looking at
+        autocorr panels.
+
+    Accepts ``data['vis']`` in either shape:
+      * full upper-triangle ``(T, F, n_inputs*(n_inputs+1)/2)`` — sliced
+        internally via ``triu_flat_index``;
+      * pre-filtered ``(T, F, n_targets)`` — used as-is when the baseline
+        count exactly matches ``len(active_antennas) - 1``.
+
     The lower-level array primitives (``compute_baselines_enu``,
     ``geometric_delay``, ``fringe_stop_array``) remain available for
     callers that need them.
-
-    Notes
-    -----
-    Expects ``data['vis']`` to have shape ``(T, F, n_targets)`` where
-    ``n_targets == len(active_antennas) - 1`` (i.e. data was loaded with
-    ``ref`` and ``targets`` set, or only contains ref<->target baselines).
-    For data with all baselines, slice externally before calling, or use
-    the runner ``run_fringe_stop`` which handles the slicing.
     """
+    from casm_io.correlator.baselines import triu_flat_index
     from casm_vis_analysis.sources import source_enu
 
     vis = _vis_dict_get(data, "vis")
@@ -247,6 +253,28 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
         )
     target_aids = [a for a in active_sorted if a != ref_ant]
 
+    # Slice ref<->target baselines if vis is full upper-triangle.
+    # If shape exactly matches len(target_aids), assume pre-filtered;
+    # otherwise treat as full triangle and slice. Order matters because
+    # tiny mappings can produce ambiguous baseline counts.
+    n_bl = vis.shape[-1]
+    if n_bl == len(target_aids):
+        vis_used = vis
+    else:
+        n_full = int((-1 + (1 + 8 * n_bl) ** 0.5) / 2)
+        if n_full * (n_full + 1) // 2 != n_bl:
+            raise ValueError(
+                f"vis has {n_bl} baselines but expected either full "
+                f"upper-triangle (n*(n+1)/2 for some n) or "
+                f"{len(target_aids)} (ref+targets for the active set). "
+                f"If you pre-filtered with different ref/targets, slice "
+                f"externally and call fringe_stop_array() directly."
+            )
+        ref_pidx = ant.packet_index(ref_ant)
+        target_pidxs = [ant.packet_index(aid) for aid in target_aids]
+        bl_idxs = [triu_flat_index(n_full, ref_pidx, p) for p in target_pidxs]
+        vis_used = vis[:, :, bl_idxs]
+
     df = ant.dataframe
     positions = np.array([
         df.loc[df["antenna_id"] == a, ["x_m", "y_m", "z_m"]].values[0]
@@ -259,16 +287,17 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
     s_enu = source_enu(source, time_unix)
     tau_s = geometric_delay(s_enu, bl_enu)
 
-    fs = fringe_stop_array(vis, freq_mhz, tau_s, sign=sign)
+    fs = fringe_stop_array(vis_used, freq_mhz, tau_s, sign=sign)
 
     target_labels = [
-        f"S{ant.snap_adc(ref_ant)[0]}A{ant.snap_adc(ref_ant)[1]} "
-        f"x S{s}A{a}"
-        for s, a in (ant.snap_adc(aid) for aid in target_aids)
+        f"Ant {ref_ant}|S{ant.snap_adc(ref_ant)[0]}A{ant.snap_adc(ref_ant)[1]} "
+        f"x Ant {aid}|S{s}A{a}"
+        for aid, (s, a) in zip(target_aids,
+                               (ant.snap_adc(aid) for aid in target_aids))
     ]
 
     return {
-        "vis": vis,
+        "vis": vis_used,
         "vis_stopped": fs["vis_stopped"],
         "vis_for_calibration": fs["vis_stopped"],
         "geometric_phase": fs["geometric_phase"],
