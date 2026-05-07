@@ -1,7 +1,10 @@
 """Source catalog and coordinate utilities for CASM visibility analysis.
 
 Provides source positions (J2000), AltAz transforms, ENU direction vectors,
-and transit window detection for the OVRO site.
+transit window detection for the OVRO site, and source flux models.
+
+Canonical flux table values match casm_calibrator's prior catalog.
+Sun spectral index is locked at -0.1 (Cane et al. quiet-sun).
 """
 
 import numpy as np
@@ -96,6 +99,54 @@ def source_enu(name, time_unix):
     n = np.cos(az_rad) * np.cos(alt_rad)
     up = np.sin(alt_rad)
     return np.column_stack([e, n, up])
+
+
+# ---------------------------------------------------------------------------
+# Source flux models
+# ---------------------------------------------------------------------------
+
+# Flux densities at 400 MHz (Jy) and spectral indices.
+# S(f) = S_400 * (f / 400 MHz)^alpha
+SOURCE_CATALOG = {
+    "cas_a": {"flux_400": 3400.0, "alpha": -0.77},
+    "cyg_a": {"flux_400": 4800.0, "alpha": -0.80},
+    "tau_a": {"flux_400": 1200.0, "alpha": -0.27},
+    "vir_a": {"flux_400": 280.0, "alpha": -0.86},
+}
+
+# Locked: Cane et al. quiet-sun spectral index.
+SUN_SPECTRAL_INDEX = -0.1
+SUN_FLUX_400_DEFAULT = 100_000.0
+
+
+def source_flux(name, freqs_mhz, sun_flux_400=SUN_FLUX_400_DEFAULT):
+    """Source flux density at each frequency.
+
+    Parameters
+    ----------
+    name : str
+        Source name (case-insensitive). 'sun' or any of SOURCE_CATALOG.
+    freqs_mhz : array-like
+        Frequencies in MHz.
+    sun_flux_400 : float
+        Sun flux at 400 MHz in Jy. Adjustable; the spectral index is
+        fixed at SUN_SPECTRAL_INDEX (-0.1).
+
+    Returns
+    -------
+    flux : ndarray
+        Flux density in Jy.
+    """
+    freqs_mhz = np.asarray(freqs_mhz, dtype=float)
+    key = name.lower().replace("-", "_").replace(" ", "_")
+    if key == "sun":
+        return sun_flux_400 * (freqs_mhz / 400.0) ** SUN_SPECTRAL_INDEX
+    entry = SOURCE_CATALOG.get(key)
+    if entry is None:
+        raise ValueError(
+            f"Unknown source '{name}'. Known: {list(SOURCE_CATALOG)} + ['sun']"
+        )
+    return entry["flux_400"] * (freqs_mhz / 400.0) ** entry["alpha"]
 
 
 def find_transit_window(name, time_unix, min_alt_deg=10.0):

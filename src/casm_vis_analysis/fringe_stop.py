@@ -11,9 +11,34 @@ vis_stopped = vis * exp(1j * phase)
 Default sign=-1 removes geometric phase from visibilities.
 """
 
+from __future__ import annotations
+
+from typing import TypedDict
+
 import numpy as np
 
 from casm_io.constants import C_LIGHT_M_S
+
+
+class FringeStoppedData(TypedDict, total=False):
+    """Fringe-stop output. Consumed by SVD calibration and imaging."""
+    vis: np.ndarray            # original (T, F, n_bl) complex64
+    vis_stopped: np.ndarray    # fringe-stopped (T, F, n_bl)
+    vis_for_calibration: np.ndarray  # alias of vis_stopped (calibration contract)
+    geometric_phase: np.ndarray
+    tau_s: np.ndarray
+    freq_mhz: np.ndarray
+    time_unix: np.ndarray
+    source: str
+    ref_ant: int
+    sign: int
+    target_aids: list
+    target_labels: list
+
+
+# ---------------------------------------------------------------------------
+# Array-level primitives (existing API; unchanged signatures)
+# ---------------------------------------------------------------------------
 
 
 def compute_baselines_enu(positions_enu, ref_idx, target_idxs):
@@ -22,87 +47,60 @@ def compute_baselines_enu(positions_enu, ref_idx, target_idxs):
     Parameters
     ----------
     positions_enu : ndarray, shape (n_ant, 3)
-        ENU positions in meters.
     ref_idx : int
-        Reference antenna index.
     target_idxs : array-like of int
-        Target antenna indices.
 
     Returns
     -------
     baselines : ndarray, shape (n_targets, 3)
-        Baseline vectors (target - ref) in ENU meters.
+        target - ref in ENU meters.
     """
     target_idxs = np.asarray(target_idxs)
     return positions_enu[target_idxs] - positions_enu[ref_idx]
 
 
 def geometric_delay(source_enu, baseline_enu):
-    """Compute geometric delay for source direction and baseline(s).
-
-    tau = (baseline . source_hat) / c
+    """Compute geometric delay tau = (b . s) / c.
 
     Parameters
     ----------
     source_enu : ndarray, shape (T, 3)
-        ENU unit direction vectors toward source.
     baseline_enu : ndarray, shape (3,) or (n_bl, 3)
-        Baseline vector(s) in meters.
 
     Returns
     -------
-    tau_s : ndarray
-        Geometric delay in seconds.
-        Shape (T,) for single baseline, (T, n_bl) for multiple.
+    tau_s : ndarray, shape (T,) or (T, n_bl)
     """
-    source_enu = np.atleast_2d(source_enu)  # (T, 3)
-    baseline_enu = np.atleast_2d(baseline_enu)  # (n_bl, 3)
-
-    # dot product: (T, 3) @ (3, n_bl) -> (T, n_bl)
+    source_enu = np.atleast_2d(source_enu)
+    baseline_enu = np.atleast_2d(baseline_enu)
     tau_s = source_enu @ baseline_enu.T / C_LIGHT_M_S
-
     if tau_s.shape[1] == 1:
-        tau_s = tau_s[:, 0]  # squeeze single baseline
+        tau_s = tau_s[:, 0]
     return tau_s
 
 
-def fringe_stop(vis, freq_mhz, tau_s, sign=-1):
-    """Apply fringe-stopping to visibilities.
+def fringe_stop_array(vis, freq_mhz, tau_s, sign=-1):
+    """Apply fringe-stopping to visibilities (array-level).
 
     Parameters
     ----------
     vis : ndarray, shape (T, F, n_bl)
-        Raw complex visibilities.
     freq_mhz : ndarray, shape (F,)
-        Frequency axis in MHz.
     tau_s : ndarray, shape (T,) or (T, n_bl)
-        Geometric delay in seconds per time sample (and per baseline).
     sign : int
-        Sign convention. Default -1 removes geometric phase.
 
     Returns
     -------
-    result : dict
-        Keys:
-        - vis_raw: original visibilities
-        - vis_stopped: fringe-stopped visibilities
-        - vis_for_calibration: same as vis_stopped (API contract for casm_calibration)
-        - geometric_phase: phase applied, shape (T, F) or (T, F, n_bl)
-        - tau_s: geometric delays
-        - sign: sign used
-        - freq_mhz: frequency axis
+    dict with vis_raw, vis_stopped, vis_for_calibration, geometric_phase,
+    tau_s, sign, freq_mhz.
     """
-    freq_hz = freq_mhz * 1e6  # (F,)
+    freq_hz = freq_mhz * 1e6
     tau_s = np.asarray(tau_s)
 
     if tau_s.ndim == 1:
-        # Single baseline or shared delay: (T,) -> (T, F) via outer product
         phase = sign * 2 * np.pi * tau_s[:, np.newaxis] * freq_hz[np.newaxis, :]
-        # Broadcast to vis shape
         correction = np.exp(1j * phase)[:, :, np.newaxis]
     else:
-        # Per-baseline delays: (T, n_bl)
-        # phase: (T, F, n_bl) = tau(T,1,n_bl) * freq(1,F,1)
         phase = sign * 2 * np.pi * (
             tau_s[:, np.newaxis, :] * freq_hz[np.newaxis, :, np.newaxis]
         )
@@ -110,7 +108,6 @@ def fringe_stop(vis, freq_mhz, tau_s, sign=-1):
 
     vis_stopped = vis * correction
 
-    # Ensure geometric_phase matches vis shape (T, F, n_bl)
     if phase.ndim == 2:
         geo_phase = phase[:, :, np.newaxis]
     else:
@@ -125,3 +122,168 @@ def fringe_stop(vis, freq_mhz, tau_s, sign=-1):
         "sign": sign,
         "freq_mhz": freq_mhz,
     }
+
+
+# Backward-compat alias for callers using the old name.
+fringe_stop_vis = fringe_stop_array
+
+
+# ---------------------------------------------------------------------------
+# Single-baseline form (ported from casm-bf-imaging)
+# ---------------------------------------------------------------------------
+
+
+def fringe_stop_single_baseline(vis, freq_hz, tau_s, sign=-1):
+    """Fringe-stop a single baseline.
+
+    Parameters
+    ----------
+    vis : ndarray, shape (T, F)
+    freq_hz : ndarray, shape (F,)
+    tau_s : ndarray, shape (T,)
+        Geometric delay per time sample.
+    sign : int
+
+    Returns
+    -------
+    vis_fs : ndarray, shape (T, F)
+    """
+    tau_s = np.asarray(tau_s)
+    phase = sign * 2 * np.pi * tau_s[:, np.newaxis] * freq_hz[np.newaxis, :]
+    return vis * np.exp(1j * phase)
+
+
+def coherence_metric(vis, freq_mask=None):
+    """Coherence over frequency: |mean(exp(i*phase))|.
+
+    High when phases are aligned across frequency (i.e. fringe-stopped well).
+
+    Parameters
+    ----------
+    vis : ndarray, shape (T, F) or (T, F, n_bl)
+    freq_mask : ndarray of bool, optional
+        True for frequencies to include.
+
+    Returns
+    -------
+    coh : ndarray, shape (T,) or (T, n_bl)
+    """
+    if freq_mask is not None:
+        vis = vis[:, freq_mask, ...]
+    unit_phasors = np.exp(1j * np.angle(vis))
+    return np.abs(np.nanmean(unit_phasors, axis=1))
+
+
+def auto_detect_sign(vis, freq_mhz, tau_s, freq_mask=None):
+    """Pick the fringe-stop sign that maximises post-stop coherence.
+
+    Parameters
+    ----------
+    vis : ndarray, shape (T, F)
+    freq_mhz : ndarray, shape (F,)
+    tau_s : ndarray, shape (T,)
+    freq_mask : ndarray of bool, optional
+
+    Returns
+    -------
+    sign : int
+        +1 or -1.
+    """
+    freq_hz = freq_mhz * 1e6
+    fs_pos = fringe_stop_single_baseline(vis, freq_hz, tau_s, sign=+1)
+    fs_neg = fringe_stop_single_baseline(vis, freq_hz, tau_s, sign=-1)
+    coh_pos = np.nanmean(coherence_metric(fs_pos, freq_mask))
+    coh_neg = np.nanmean(coherence_metric(fs_neg, freq_mask))
+    return +1 if coh_pos > coh_neg else -1
+
+
+# ---------------------------------------------------------------------------
+# Dict-based wrapper (compose-friendly notebook API)
+# ---------------------------------------------------------------------------
+
+
+def _vis_dict_get(data, key):
+    """Read a key from either a dict-like or a dataclass-like data container."""
+    if hasattr(data, "__getitem__"):
+        try:
+            return data[key]
+        except (KeyError, TypeError):
+            pass
+    return getattr(data, key)
+
+
+def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
+    """Compose-friendly fringe-stop.
+
+    Accepts the dict (or :class:`VisibilityResult`) returned by
+    ``casm_io.read_visibilities`` / ``VisibilityReader.read``, the
+    :class:`AntennaMapping`, the reference antenna ID, and the source
+    name. Returns a :class:`FringeStoppedData` ready for SVD calibration
+    and imaging.
+
+    The lower-level array primitives (``compute_baselines_enu``,
+    ``geometric_delay``, ``fringe_stop_array``) remain available for
+    callers that need them.
+
+    Notes
+    -----
+    Expects ``data['vis']`` to have shape ``(T, F, n_targets)`` where
+    ``n_targets == len(active_antennas) - 1`` (i.e. data was loaded with
+    ``ref`` and ``targets`` set, or only contains ref<->target baselines).
+    For data with all baselines, slice externally before calling, or use
+    the runner ``run_fringe_stop`` which handles the slicing.
+    """
+    from casm_vis_analysis.sources import source_enu
+
+    vis = _vis_dict_get(data, "vis")
+    freq_mhz = _vis_dict_get(data, "freq_mhz")
+    time_unix = _vis_dict_get(data, "time_unix")
+
+    active_sorted = sorted(ant.active_antennas())
+    if ref_ant not in active_sorted:
+        raise ValueError(
+            f"ref_ant={ref_ant} is not in active_antennas() "
+            f"({active_sorted[:5]}{'...' if len(active_sorted) > 5 else ''})"
+        )
+    target_aids = [a for a in active_sorted if a != ref_ant]
+
+    df = ant.dataframe
+    positions = np.array([
+        df.loc[df["antenna_id"] == a, ["x_m", "y_m", "z_m"]].values[0]
+        for a in active_sorted
+    ])
+    ref_pos_idx = active_sorted.index(ref_ant)
+    target_pos_idxs = [active_sorted.index(a) for a in target_aids]
+    bl_enu = compute_baselines_enu(positions, ref_pos_idx, target_pos_idxs)
+
+    s_enu = source_enu(source, time_unix)
+    tau_s = geometric_delay(s_enu, bl_enu)
+
+    fs = fringe_stop_array(vis, freq_mhz, tau_s, sign=sign)
+
+    target_labels = [
+        f"S{ant.snap_adc(ref_ant)[0]}A{ant.snap_adc(ref_ant)[1]} "
+        f"x S{s}A{a}"
+        for s, a in (ant.snap_adc(aid) for aid in target_aids)
+    ]
+
+    return {
+        "vis": vis,
+        "vis_stopped": fs["vis_stopped"],
+        "vis_for_calibration": fs["vis_stopped"],
+        "geometric_phase": fs["geometric_phase"],
+        "tau_s": tau_s,
+        "freq_mhz": freq_mhz,
+        "time_unix": time_unix,
+        "source": source,
+        "ref_ant": ref_ant,
+        "sign": sign,
+        "target_aids": target_aids,
+        "target_labels": target_labels,
+    }
+
+
+# Note: the public name `fringe_stop` is now the dict-based wrapper above.
+# The legacy array-level entry point is `fringe_stop_array` (or its
+# backward-compat alias `fringe_stop_vis`). `runners.py` uses
+# `fringe_stop_array` explicitly.

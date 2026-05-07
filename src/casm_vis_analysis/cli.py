@@ -47,9 +47,25 @@ def _common_parser(description):
                         help="Number of files to read")
     parser.add_argument("--skip-nfiles", type=int, default=0,
                         help="Number of files to skip before reading (requires --nfiles)")
+    parser.add_argument("--freq-range-mhz", default=None, metavar="LO,HI",
+                        help="Read only this frequency range, e.g. 60,80. "
+                             "Triggers np.memmap + on-disk channel skip "
+                             "(real bytes-not-read).")
     parser.add_argument("--show", action="store_true",
                         help="Show plots inline (e.g. Jupyter) instead of saving to disk")
     return parser
+
+
+def _parse_freq_range_mhz(arg):
+    """'60,80' -> (60.0, 80.0); None passes through."""
+    if arg is None:
+        return None
+    parts = arg.split(",")
+    if len(parts) != 2:
+        raise ValueError(
+            f"--freq-range-mhz expects 'LO,HI' (got {arg!r})"
+        )
+    return float(parts[0]), float(parts[1])
 
 
 def _grid_label(df, antenna_id):
@@ -81,6 +97,7 @@ def autocorr_main(argv=None):
         output_dir=args.output_dir, freq_order=args.freq_order,
         time_start=args.time_start, time_end=args.time_end,
         time_tz=args.time_tz, nfiles=args.nfiles, skip_nfiles=args.skip_nfiles,
+        freq_range_mhz=_parse_freq_range_mhz(args.freq_range_mhz),
         show=args.show, ncols=args.ncols, scale=args.scale,
         include_inactive=args.include_inactive,
     )
@@ -107,6 +124,7 @@ def waterfall_main(argv=None):
         output_dir=args.output_dir, freq_order=args.freq_order,
         time_start=args.time_start, time_end=args.time_end,
         time_tz=args.time_tz, nfiles=args.nfiles, skip_nfiles=args.skip_nfiles,
+        freq_range_mhz=_parse_freq_range_mhz(args.freq_range_mhz),
         show=args.show, split_max=args.split_max,
         diag_spectra=args.diag_spectra, pub=args.pub,
         include_inactive=args.include_inactive,
@@ -267,6 +285,7 @@ def fringe_stop_main(argv=None):
         output_dir=args.output_dir, freq_order=args.freq_order,
         time_start=args.time_start, time_end=args.time_end,
         time_tz=args.time_tz, nfiles=args.nfiles, skip_nfiles=args.skip_nfiles,
+        freq_range_mhz=_parse_freq_range_mhz(args.freq_range_mhz),
         show=args.show, rfi_mask=args.rfi_mask,
         delay_model=args.delay_model, antenna_delays=args.antenna_delays,
         save_npz=args.save_npz,

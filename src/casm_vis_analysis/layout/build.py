@@ -4,13 +4,17 @@ Reads two source-of-truth CSVs and writes the consumer file:
 
 * positions  : `antenna_layout_april_ovro.csv` (lat/lon/alt per plank/element)
 * wiring     : `casm_wiring.csv` (snap_ip, slot, feng_id, adc, plank, element, …)
-* output     : `casm_antenna_layout_may2026.csv`
-                (AntennaMapping schema + provenance columns appended)
+* output     : `casm_antenna_layout_YYYY-MM-DD.csv` when ``dated=True``
+               (default; updates ``current`` symlink atomically).
+               Otherwise writes the legacy ``casm_antenna_layout_may2026.csv``
+               for backward compatibility.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
+import os
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +26,29 @@ from casm_vis_analysis.layout._grid import parse_grid_code
 DEFAULT_POSITIONS_CSV = Path("/home/casm/software/dev/antenna_layouts/antenna_layout_april_ovro.csv")
 DEFAULT_WIRING_CSV    = Path("/home/casm/software/dev/antenna_layouts/casm_wiring.csv")
 DEFAULT_OUTPUT_CSV    = Path("/home/casm/software/dev/antenna_layouts/casm_antenna_layout_may2026.csv")
+DEFAULT_LAYOUT_DIR    = Path("/home/casm/software/dev/antenna_layouts")
+
+
+def _resolve_output_path(output_csv, dated: bool) -> Path:
+    """Pick the output path. dated=True wins; output_csv overrides; legacy default last."""
+    if output_csv is not None:
+        return Path(output_csv)
+    if dated:
+        layout_dir = Path(os.environ.get("CASM_LAYOUT_DIR", DEFAULT_LAYOUT_DIR))
+        date = _dt.date.today().isoformat()
+        return layout_dir / f"casm_antenna_layout_{date}.csv"
+    return DEFAULT_OUTPUT_CSV
+
+
+def _update_current_symlink(target: Path) -> None:
+    """Atomically point `<dir>/current` at the dated CSV."""
+    link = target.parent / "current"
+    tmp = target.parent / f".current.{os.getpid()}"
+    if tmp.exists() or tmp.is_symlink():
+        tmp.unlink()
+    tmp.symlink_to(target.name)   # relative target so move-the-dir survives
+    os.replace(tmp, link)
+    print(f"updated symlink: {link} -> {target.name}")
 
 ENU_ORIGIN_PLANK   = "N21"
 ENU_ORIGIN_ELEMENT = "E1"
@@ -111,18 +138,37 @@ def _check_casman_diff(out: pd.DataFrame) -> dict:
 def run_build_layout(*, positions_csv: Path | str | None = None,
                      wiring_csv: Path | str | None = None,
                      output_csv: Path | str | None = None,
+                     dated: bool = True,
+                     update_symlink: bool = True,
                      check_casman: bool = False) -> dict:
     """Build the AntennaMapping-compatible layout CSV.
+
+    Parameters
+    ----------
+    positions_csv, wiring_csv : path-like
+        Source CSVs. Defaults to canonical paths in
+        ``/home/casm/software/dev/antenna_layouts``.
+    output_csv : path-like, optional
+        If given, writes here regardless of ``dated``.
+    dated : bool
+        When True (default), output filename is
+        ``casm_antenna_layout_YYYY-MM-DD.csv`` under ``$CASM_LAYOUT_DIR``.
+        When False, writes to the legacy ``casm_antenna_layout_may2026.csv``.
+    update_symlink : bool
+        When True (default) and ``dated`` (or output is in
+        ``$CASM_LAYOUT_DIR``), atomically update the ``current`` symlink
+        to point at the new file.
 
     Returns
     -------
     dict
         ``{'output_csv': Path, 'n_total': int, 'n_active': int,
-        'casman_diff': dict | None, 'dataframe': pd.DataFrame}``
+        'casman_diff': dict | None, 'dataframe': pd.DataFrame,
+        'symlink_updated': bool}``
     """
     positions_csv = Path(positions_csv) if positions_csv else DEFAULT_POSITIONS_CSV
     wiring_csv    = Path(wiring_csv)    if wiring_csv    else DEFAULT_WIRING_CSV
-    output_csv    = Path(output_csv)    if output_csv    else DEFAULT_OUTPUT_CSV
+    output_csv    = _resolve_output_path(output_csv, dated)
 
     pos = pd.read_csv(positions_csv)
     wir = pd.read_csv(wiring_csv)
@@ -197,9 +243,14 @@ def run_build_layout(*, positions_csv: Path | str | None = None,
         out = pd.concat([out, pd.DataFrame(pad)], ignore_index=True)
     out = out.sort_values(["snap", "adc"]).reset_index(drop=True)
     out.insert(0, "antenna", np.arange(1, len(out) + 1))
+    # Phase 2 schema extension: pos_type and include_in_beamforming columns
+    # for bf_weights_generator (replaces Array64Config requirements).
+    out["pos_type"] = np.where(out["functional"] == 1, "antenna", "unconnected")
+    out["include_in_beamforming"] = out["functional"].astype(int)
     out = out[[
         "antenna", "x", "y", "z", "snap", "adc", "packet_idx",
-        "functional", "row", "col",
+        "functional", "pos_type", "include_in_beamforming",
+        "row", "col",
         "lat", "lon", "alt",
         "snap_ip", "slot",
         "position_source", "antenna_part_num", "comments",
@@ -219,10 +270,16 @@ def run_build_layout(*, positions_csv: Path | str | None = None,
     n_active = int((out.functional == 1).sum())
     print(f"\nWrote {output_csv} ({len(out)} rows, {n_active} active)")
 
+    symlink_updated = False
+    if update_symlink and output_csv.parent.resolve() == \
+            Path(os.environ.get("CASM_LAYOUT_DIR", DEFAULT_LAYOUT_DIR)).resolve():
+        _update_current_symlink(output_csv)
+        symlink_updated = True
+
     diff = _check_casman_diff(out) if check_casman else None
     return {"output_csv": output_csv, "n_total": len(out),
             "n_active": n_active, "casman_diff": diff,
-            "dataframe": out}
+            "dataframe": out, "symlink_updated": symlink_updated}
 
 
 def main(argv=None):
@@ -234,7 +291,12 @@ def main(argv=None):
     parser.add_argument("--wiring", default=None,
                         help=f"Wiring CSV (default: {DEFAULT_WIRING_CSV})")
     parser.add_argument("--output", default=None,
-                        help=f"Output CSV (default: {DEFAULT_OUTPUT_CSV})")
+                        help="Output CSV (default: dated file in $CASM_LAYOUT_DIR)")
+    parser.add_argument("--no-dated", action="store_true",
+                        help=f"Write to legacy {DEFAULT_OUTPUT_CSV} instead of "
+                             f"a dated file in $CASM_LAYOUT_DIR.")
+    parser.add_argument("--no-symlink", action="store_true",
+                        help="Skip atomic update of the `current` symlink.")
     parser.add_argument("--check-casman", action="store_true",
                         help="After building, diff against CAsMan and print conflicts")
     args = parser.parse_args(argv)
@@ -242,6 +304,8 @@ def main(argv=None):
         positions_csv=args.positions,
         wiring_csv=args.wiring,
         output_csv=args.output,
+        dated=not args.no_dated,
+        update_symlink=not args.no_symlink,
         check_casman=args.check_casman,
     )
 

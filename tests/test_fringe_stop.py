@@ -5,7 +5,7 @@ import pytest
 from casm_vis_analysis.fringe_stop import (
     compute_baselines_enu,
     geometric_delay,
-    fringe_stop,
+    fringe_stop_array as fringe_stop,  # legacy array-level API
 )
 
 

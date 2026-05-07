@@ -60,7 +60,8 @@ def _snap_only_groups(snaps, fmt):
 
 def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None,
               freq_order="descending", time_start=None, time_end=None,
-              time_tz="UTC", nfiles=None, skip_nfiles=0, data_root=None):
+              time_tz="UTC", nfiles=None, skip_nfiles=0, data_root=None,
+              freq_range_mhz=None):
     """Dispatch between obs-mode and time-range mode.
 
     - If ``obs`` is given: open that observation with ``VisibilityReader``
@@ -69,6 +70,9 @@ def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None,
       and auto-discovery via ``read_visibilities`` finds and stitches
       every overlapping observation under ``data_dir`` (or ``data_root``
       if ``data_dir`` is None).
+
+    ``freq_range_mhz=(lo, hi)`` triggers ``np.memmap`` + on-disk channel
+    skip in casm_io's reader (real bytes-not-read).
     """
     if obs is None:
         from casm_io.correlator import read_visibilities
@@ -81,6 +85,7 @@ def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None,
             time_start=time_start, time_end=time_end, time_tz=time_tz,
             data_root=data_root or "/mnt", data_dir=data_dir,
             fmt=fmt, ref=ref, targets=targets, freq_order=freq_order,
+            freq_range_mhz=freq_range_mhz,
         )
 
     from casm_io.correlator import VisibilityReader
@@ -88,6 +93,7 @@ def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None,
     return reader.read(
         ref=ref, targets=targets,
         freq_order=freq_order,
+        freq_range_mhz=freq_range_mhz,
         time_start=time_start, time_end=time_end, time_tz=time_tz,
         nfiles=nfiles, skip_nfiles=skip_nfiles,
     )
@@ -113,7 +119,8 @@ def run_autocorr(*, data_dir=None, obs=None, format, layout=None,
                  snaps=(0, 2, 4),
                  output_dir="./output", freq_order="descending",
                  time_start=None, time_end=None, time_tz="UTC",
-                 nfiles=None, skip_nfiles=0, data_root=None, show=False,
+                 nfiles=None, skip_nfiles=0, data_root=None,
+                 freq_range_mhz=None, show=False,
                  ncols=4, scale="dB", include_inactive=False):
     """Autocorrelation power spectra per SNAP. Mirrors `casm-autocorr`.
 
@@ -130,7 +137,8 @@ def run_autocorr(*, data_dir=None, obs=None, format, layout=None,
     data = _read_vis(data_dir, obs, fmt,
                      freq_order=freq_order,
                      time_start=time_start, time_end=time_end, time_tz=time_tz,
-                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root)
+                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root,
+                     freq_range_mhz=freq_range_mhz)
     vis = data["vis"]; freq_mhz = data["freq_mhz"]; time_unix = data["time_unix"]
     print(f"Loaded vis: {vis.shape}, freq: {freq_mhz.shape}")
 
@@ -167,7 +175,8 @@ def run_waterfall(*, data_dir=None, obs=None, format, layout=None,
                   snaps=(0, 2, 4),
                   output_dir="./output", freq_order="descending",
                   time_start=None, time_end=None, time_tz="UTC",
-                  nfiles=None, skip_nfiles=0, data_root=None, show=False,
+                  nfiles=None, skip_nfiles=0, data_root=None,
+                  freq_range_mhz=None, show=False,
                   split_max=16, diag_spectra=False, pub=False,
                   include_inactive=False):
     """Upper-triangle waterfall matrix. Mirrors `casm-waterfall`.
@@ -184,7 +193,8 @@ def run_waterfall(*, data_dir=None, obs=None, format, layout=None,
     data = _read_vis(data_dir, obs, fmt,
                      freq_order=freq_order,
                      time_start=time_start, time_end=time_end, time_tz=time_tz,
-                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root)
+                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root,
+                     freq_range_mhz=freq_range_mhz)
     vis = data["vis"]; freq_mhz = data["freq_mhz"]; time_unix = data["time_unix"]
     print(f"Loaded vis: {vis.shape}")
 
@@ -241,7 +251,8 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
                     source="sun", sign=-1, min_alt=10.0,
                     output_dir="./output", freq_order="descending",
                     time_start=None, time_end=None, time_tz="UTC",
-                    nfiles=None, skip_nfiles=0, data_root=None, show=False,
+                    nfiles=None, skip_nfiles=0, data_root=None,
+                    freq_range_mhz=None, show=False,
                     rfi_mask=None, delay_model=None,
                     antenna_delays=False, save_npz=False):
     """Fringe-stop + optional delay correction + diagnostics.
@@ -264,7 +275,7 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
     from casm_io.correlator import load_format
     from casm_vis_analysis.sources import source_enu, find_transit_window
     from casm_vis_analysis.fringe_stop import (
-        compute_baselines_enu, geometric_delay, fringe_stop,
+        compute_baselines_enu, geometric_delay, fringe_stop_array,
     )
     from casm_vis_analysis.delay import fit_delay, apply_delay
     from casm_vis_analysis.plotting.fringe_diag import plot_fringe_diagnostic
@@ -286,7 +297,8 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
                      ref=ref_pidx, targets=target_pidxs,
                      freq_order=freq_order,
                      time_start=time_start, time_end=time_end, time_tz=time_tz,
-                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root)
+                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root,
+                     freq_range_mhz=freq_range_mhz)
     vis = data["vis"]; freq_mhz = data["freq_mhz"]; time_unix = data["time_unix"]
     print(f"Loaded vis: {vis.shape}, freq: {freq_mhz.shape}, "
           f"time: {time_unix.shape}")
@@ -338,7 +350,7 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
     print(f"Geometric delay shape: {tau_s.shape}")
     _print_geometry_table(target_labels, bl_enu, tau_s)
 
-    fs = fringe_stop(vis, freq_mhz, tau_s, sign=sign)
+    fs = fringe_stop_array(vis, freq_mhz, tau_s, sign=sign)
     vis_fs = fs["vis_stopped"]
     print(f"Fringe-stopped vis shape: {vis_fs.shape}")
 

@@ -181,6 +181,50 @@ def phasor_apply(vis, freq_mhz, fit_params):
 
 
 # ---------------------------------------------------------------------------
+# Bare-phasor API (ported from casm-bf-imaging delay_fit.py for callers
+# that want the angle array directly, not wrapped in a fit_params dict).
+# ---------------------------------------------------------------------------
+
+
+def compute_per_freq_phasor(vis_fs, time_mask=None, freq_mask=None):
+    """Bare per-frequency phasor angle.
+
+    Returns ``angle(mean_t(vis_fs))`` directly. Equivalent to
+    ``phasor_fit(...)['phasor_phase']`` but skips the dict wrapper.
+
+    Parameters
+    ----------
+    vis_fs : ndarray, shape (T, F) or (T, F, n_bl)
+    time_mask : ndarray of bool, shape (T,), optional
+    freq_mask : ndarray of bool, shape (F,), optional
+        Currently unused (kept for API symmetry with the bf-imaging form).
+
+    Returns
+    -------
+    phasor_phase : ndarray, shape (F,) or (F, n_bl)
+    """
+    if time_mask is not None:
+        vis_avg = np.mean(vis_fs[time_mask], axis=0)
+    else:
+        vis_avg = np.mean(vis_fs, axis=0)
+    return np.angle(vis_avg)
+
+
+def apply_per_freq_phasor(vis, phasor_phase):
+    """Apply a bare per-frequency phasor (angle array).
+
+    Counterpart to :func:`compute_per_freq_phasor`. Equivalent to
+    ``phasor_apply(vis, freq_mhz, {'phasor_phase': phasor_phase})``.
+    """
+    phasor = np.exp(-1j * phasor_phase)
+    if phasor.ndim == 1:
+        correction = phasor[np.newaxis, :, np.newaxis]
+    else:
+        correction = phasor[np.newaxis, :, :]
+    return vis * correction
+
+
+# ---------------------------------------------------------------------------
 # Model registry
 # ---------------------------------------------------------------------------
 
