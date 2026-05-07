@@ -272,8 +272,23 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
             )
         ref_pidx = ant.packet_index(ref_ant)
         target_pidxs = [ant.packet_index(aid) for aid in target_aids]
-        bl_idxs = [triu_flat_index(n_full, ref_pidx, p) for p in target_pidxs]
+        # The upper-triangle index expects i <= j. Some targets may have
+        # packet_index < ref_pidx, so always pass (min, max). The vis
+        # element at (i, j) is conjugate-symmetric of (j, i); for the
+        # cross-correlation magnitude this doesn't matter but we DO need
+        # to conjugate when the order is flipped so the geometric phase
+        # convention stays right.
+        bl_idxs = []
+        conjugate_mask = []
+        for p in target_pidxs:
+            i, j = sorted((ref_pidx, p))
+            bl_idxs.append(triu_flat_index(n_full, i, j))
+            conjugate_mask.append(p < ref_pidx)
         vis_used = vis[:, :, bl_idxs]
+        if any(conjugate_mask):
+            mask = np.array(conjugate_mask, dtype=bool)
+            vis_used = vis_used.copy()    # writable
+            vis_used[:, :, mask] = np.conj(vis_used[:, :, mask])
 
     df = ant.dataframe
     positions = np.array([
