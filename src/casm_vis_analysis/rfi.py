@@ -33,7 +33,9 @@ class RFIMask:
     bad_ranges_mhz: list = field(default_factory=list)
 
     def __post_init__(self):
-        # Validate ranges; allow empty list (means "no RFI flagged").
+        # Allow None as "no RFI flagged" (callers passing rfi_mask=None).
+        if self.bad_ranges_mhz is None:
+            self.bad_ranges_mhz = []
         cleaned = []
         for lo, hi in self.bad_ranges_mhz:
             if hi < lo:
