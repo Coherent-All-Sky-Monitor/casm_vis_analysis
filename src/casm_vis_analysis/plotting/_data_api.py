@@ -96,11 +96,13 @@ def plot_autocorr_data(data, ant, *, include_inactive=False, **kwargs):
             else ant.active_antennas())
     has_grid_cols = "row" in df.columns and "col" in df.columns
 
-    # Group antennas by SNAP id.
+    # Group antennas by SNAP id. Panel label format:
+    #   "Ant 9 | S0A0: N21E5"
+    # antenna ID first so users can call ant.with_inactive([...]) directly.
     snap_groups: dict = {}
     for aid in aids:
         snap_id, adc = ant.snap_adc(aid)
-        label = f"S{snap_id}A{adc}"
+        label = f"Ant {aid} | S{snap_id}A{adc}"
         if has_grid_cols:
             r = df.loc[df.antenna_id == aid].iloc[0]
             row, col = r.get("row"), r.get("col")
