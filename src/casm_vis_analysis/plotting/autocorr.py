@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 def plot_autocorr(vis, freq_mhz, antenna_labels, time_avg=True,
                   freq_mask=None, output_path=None, ncols=4,
-                  time_unix=None, snap_label=None, scale="dB"):
+                  time_unix=None, snap_label=None, scale="dB",
+                  show_grid=True):
     """Plot autocorrelation power spectra on a grid.
 
     Parameters
@@ -57,7 +58,8 @@ def plot_autocorr(vis, freq_mhz, antenna_labels, time_avg=True,
             y[freq_mask] = np.nan
         ax.plot(freq_mhz, y, linewidth=0.5)
         ax.set_title(antenna_labels[i], fontsize=9)
-        ax.grid(True, alpha=0.3)
+        if show_grid:
+            ax.grid(True, alpha=0.3)
 
     # Turn off unused axes
     for i in range(n_ant, nrows * ncols):
