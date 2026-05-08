@@ -13,10 +13,12 @@ valid for the caller to inspect or save manually.
 
 from __future__ import annotations
 
+import numpy as np
 import matplotlib.pyplot as plt
 
 from casm_vis_analysis.plotting.autocorr import plot_autocorr as _plot_autocorr_array
 from casm_vis_analysis.plotting.waterfall import plot_waterfall as _plot_waterfall_array
+from casm_vis_analysis.rfi import _freq_mask_for_channel
 
 
 def _vis_dict_get(data, key):
@@ -114,10 +116,20 @@ def plot_autocorr_data(data, ant, *, include_inactive=False, **kwargs):
         snap_groups[snap_id][0].append(auto_idx)
         snap_groups[snap_id][1].append(label)
 
+    # NaN-fill RFI-flagged channels so the plot shows visible gaps
+    # (no interpolation; the underlying plotter takes np.abs() then
+    # log10, both of which propagate NaN cleanly).
+    fmask = _freq_mask_for_channel(data)
+    if fmask is not None and fmask.any():
+        vis_for_plot = vis.astype(np.complex128, copy=True)
+        vis_for_plot[:, fmask, :] = np.nan + 1j * np.nan
+    else:
+        vis_for_plot = vis
+
     output_path = kwargs.pop("output_path", None)
     figs = []
     for snap_id, (idxs, labels) in sorted(snap_groups.items()):
-        snap_vis = vis[:, :, idxs]
+        snap_vis = vis_for_plot[:, :, idxs]
         # Per-SNAP output path: append _snap{N} suffix when saving.
         per_snap_path = None
         if output_path is not None:
@@ -161,8 +173,17 @@ def plot_waterfall_data(data, ant, *, include_inactive=False, **kwargs):
     n_bl = vis.shape[-1]
     n_sig = int((-1 + (1 + 8 * n_bl) ** 0.5) / 2)
 
+    # NaN-fill flagged frequency channels so they appear as white
+    # vertical stripes in the waterfall imshow.
+    fmask = _freq_mask_for_channel(data)
+    if fmask is not None and fmask.any():
+        vis_plot = vis.astype(np.complex128, copy=True)
+        vis_plot[:, fmask, :] = np.nan + 1j * np.nan
+    else:
+        vis_plot = vis
+
     figs = _plot_waterfall_array(
-        vis, freq_mhz, time_unix, n_sig,
+        vis_plot, freq_mhz, time_unix, n_sig,
         packet_indices=pkt,
         antenna_labels=antenna_labels,
         snap_adc_labels=snap_adc_labels,

@@ -18,7 +18,7 @@ from casm_vis_analysis.sources import (
     source_flux, SOURCE_CATALOG, SUN_FLUX_400_DEFAULT, SUN_SPECTRAL_INDEX,
     find_transit_window,
 )
-from casm_vis_analysis.rfi import RFIMask
+from casm_vis_analysis.rfi import RFIMask, apply_rfi_mask
 from casm_vis_analysis.plotting.autocorr import plot_autocorr as plot_autocorr_array
 from casm_vis_analysis.plotting.waterfall import plot_waterfall as plot_waterfall_array
 from casm_vis_analysis.plotting.fringe_diag import plot_fringe_diagnostic as plot_fringe_diag
@@ -46,7 +46,7 @@ __all__ = [
     "source_position", "source_altaz", "source_enu",
     "source_flux", "SOURCE_CATALOG", "SUN_FLUX_400_DEFAULT",
     "SUN_SPECTRAL_INDEX", "find_transit_window",
-    "RFIMask",
+    "RFIMask", "apply_rfi_mask",
     "plot_autocorr", "plot_waterfall", "plot_fringe_diag",
     "plot_phase_vs_freq",
     "plot_autocorr_array", "plot_waterfall_array",

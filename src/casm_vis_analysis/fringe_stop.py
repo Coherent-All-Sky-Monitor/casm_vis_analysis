@@ -305,19 +305,15 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1,
 
     fs = fringe_stop_array(vis_used, freq_mhz, tau_s, sign=sign)
 
-    target_labels = [
-        f"Ant {ref_ant}|S{ant.snap_adc(ref_ant)[0]}A{ant.snap_adc(ref_ant)[1]} "
-        f"x Ant {aid}|S{s}A{a}"
-        for aid, (s, a) in zip(target_aids,
-                               (ant.snap_adc(aid) for aid in target_aids))
-    ]
-
-    # Resolve the per-channel "good" mask. Accepts:
-    #   * an RFIMask instance (we call it on freq_mhz)
-    #   * a bool ndarray of shape (F,)  with True = good
-    #   * None  (everything good)
+    # Resolve the per-channel mask before NaN-filling. Precedence:
+    #   1. explicit rfi_mask= kwarg (RFIMask, bool array, or None-ignore)
+    #   2. data['freq_mask'] populated by apply_rfi_mask() — True = flagged
+    #   3. all-good
+    # Internal `freq_mask` is True = GOOD (matches fit_delay convention).
+    from casm_vis_analysis.rfi import _freq_mask_for_channel
     if rfi_mask is None:
-        freq_mask = np.ones(len(freq_mhz), dtype=bool)
+        _flag = _freq_mask_for_channel(data)
+        freq_mask = np.ones(len(freq_mhz), dtype=bool) if _flag is None else (~_flag)
     elif callable(rfi_mask):
         freq_mask = np.asarray(rfi_mask(freq_mhz), dtype=bool)
     else:
@@ -328,6 +324,27 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1,
             f"({len(freq_mhz)},). Pass an RFIMask, a bool array of "
             f"length {len(freq_mhz)}, or None."
         )
+
+    # NaN-fill RFI-flagged channels in the fringe-stopped output. Don't
+    # touch raw data['vis']; the geometric phase computation is already
+    # done but the result is meaningless without source signal there.
+    flagged = ~freq_mask
+    if flagged.any():
+        vs = fs["vis_stopped"].astype(np.complex128, copy=True)
+        vs[:, flagged, :] = np.nan + 1j * np.nan
+        fs["vis_stopped"] = vs
+        fs["vis_for_calibration"] = vs
+        if "geometric_phase" in fs:
+            gp = np.asarray(fs["geometric_phase"]).astype(np.float64, copy=True)
+            gp[:, flagged] = np.nan
+            fs["geometric_phase"] = gp
+
+    target_labels = [
+        f"Ant {ref_ant}|S{ant.snap_adc(ref_ant)[0]}A{ant.snap_adc(ref_ant)[1]} "
+        f"x Ant {aid}|S{s}A{a}"
+        for aid, (s, a) in zip(target_aids,
+                               (ant.snap_adc(aid) for aid in target_aids))
+    ]
 
     # Transit-window time mask: True where the source is above min_alt_deg.
     # Downstream stages (especially SVD calibration) use this to time-average

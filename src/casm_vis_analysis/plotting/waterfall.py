@@ -96,14 +96,19 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
                     else:
                         # Diagonal: dB power waterfall
                         power_db = 10 * np.log10(np.abs(bl_vis) + 1e-30)
+                        cm = plt.get_cmap("viridis").copy()
+                        cm.set_bad("white")
                         ax.pcolormesh(time_hours, freq_mhz, power_db.T,
-                                      cmap="viridis", shading="auto")
+                                      cmap=cm, shading="auto")
                     ax.set_title(antenna_labels[i], fontsize=6)
                 else:
                     # Upper triangle: phase
                     phase = np.angle(bl_vis)
+                    # NaN in bl_vis (RFI flagged channels) -> NaN in phase.
+                    cm_phase = plt.get_cmap("RdBu").copy()
+                    cm_phase.set_bad("white")
                     ax.pcolormesh(time_hours, freq_mhz, phase.T,
-                                  cmap="RdBu", shading="auto",
+                                  cmap=cm_phase, shading="auto",
                                   norm=Normalize(-np.pi, np.pi))
                     ax.set_title(
                         f"{snap_adc_labels[i]} \u00d7 {snap_adc_labels[j]}",

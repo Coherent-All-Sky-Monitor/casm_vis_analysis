@@ -28,3 +28,6 @@ casm-sync-wiring = "casm_vis_analysis.layout.sync:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+casm_vis_analysis = ["configs/*.json"]

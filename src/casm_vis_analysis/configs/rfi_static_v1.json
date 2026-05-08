@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "site": "OVRO",
+  "description": "Static RFI mask for CASM at OVRO. Persistent external RF that should always be flagged regardless of observation. Bump the version number when bands change; keep older versions on disk for reproducibility.",
+  "bands_mhz": [
+    {"lo": 437.0, "hi": 438.5, "label": "amateur_satellite"},
+    {"lo": 451.0, "hi": 452.5, "label": "lmr"},
+    {"lo": 462.5, "hi": 470.0, "label": "gmrs_lmr"},
+    {"lo": 474.0, "hi": 485.0, "label": "uhf_tv_ch14"}
+  ]
+}
