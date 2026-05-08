@@ -212,7 +212,8 @@ def _vis_dict_get(data, key):
     return getattr(data, key)
 
 
-def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
+def fringe_stop(data, ant, *, ref_ant, source, sign=-1,
+                min_alt_deg=10.0) -> FringeStoppedData:
     """Compose-friendly fringe-stop.
 
     Accepts the dict (or :class:`VisibilityResult`) returned by
@@ -239,7 +240,7 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
     callers that need them.
     """
     from casm_io.correlator.baselines import triu_flat_index
-    from casm_vis_analysis.sources import source_enu
+    from casm_vis_analysis.sources import source_enu, find_transit_window
 
     vis = _vis_dict_get(data, "vis")
     freq_mhz = _vis_dict_get(data, "freq_mhz")
@@ -311,6 +312,18 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
                                (ant.snap_adc(aid) for aid in target_aids))
     ]
 
+    # Transit-window time mask: True where the source is above min_alt_deg.
+    # Downstream stages (especially SVD calibration) use this to time-average
+    # only when the source is up; otherwise the matrix gets diluted with
+    # low-SNR samples and lambda_1/lambda_2 collapses.
+    try:
+        i0, i1 = find_transit_window(source, time_unix, min_alt_deg=min_alt_deg)
+        time_mask = np.zeros(len(time_unix), dtype=bool)
+        time_mask[i0:i1 + 1] = True
+    except ValueError:
+        # Source never rises -- keep all samples and let the user decide.
+        time_mask = np.ones(len(time_unix), dtype=bool)
+
     return {
         "vis": vis_used,
         "vis_stopped": fs["vis_stopped"],
@@ -319,6 +332,7 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1) -> FringeStoppedData:
         "tau_s": tau_s,
         "freq_mhz": freq_mhz,
         "time_unix": time_unix,
+        "time_mask": time_mask,
         "source": source,
         "ref_ant": ref_ant,
         "sign": sign,
