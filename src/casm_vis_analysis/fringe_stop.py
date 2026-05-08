@@ -213,7 +213,7 @@ def _vis_dict_get(data, key):
 
 
 def fringe_stop(data, ant, *, ref_ant, source, sign=-1,
-                min_alt_deg=10.0) -> FringeStoppedData:
+                min_alt_deg=10.0, rfi_mask=None) -> FringeStoppedData:
     """Compose-friendly fringe-stop.
 
     Accepts the dict (or :class:`VisibilityResult`) returned by
@@ -312,6 +312,23 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1,
                                (ant.snap_adc(aid) for aid in target_aids))
     ]
 
+    # Resolve the per-channel "good" mask. Accepts:
+    #   * an RFIMask instance (we call it on freq_mhz)
+    #   * a bool ndarray of shape (F,)  with True = good
+    #   * None  (everything good)
+    if rfi_mask is None:
+        freq_mask = np.ones(len(freq_mhz), dtype=bool)
+    elif callable(rfi_mask):
+        freq_mask = np.asarray(rfi_mask(freq_mhz), dtype=bool)
+    else:
+        freq_mask = np.asarray(rfi_mask, dtype=bool)
+    if freq_mask.shape != (len(freq_mhz),):
+        raise ValueError(
+            f"rfi_mask shape {freq_mask.shape} doesn't match freq axis "
+            f"({len(freq_mhz)},). Pass an RFIMask, a bool array of "
+            f"length {len(freq_mhz)}, or None."
+        )
+
     # Transit-window time mask: True where the source is above min_alt_deg.
     # Downstream stages (especially SVD calibration) use this to time-average
     # only when the source is up; otherwise the matrix gets diluted with
@@ -333,6 +350,7 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1,
         "freq_mhz": freq_mhz,
         "time_unix": time_unix,
         "time_mask": time_mask,
+        "freq_mask": freq_mask,
         "source": source,
         "ref_ant": ref_ant,
         "sign": sign,
