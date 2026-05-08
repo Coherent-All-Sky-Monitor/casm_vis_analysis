@@ -325,19 +325,17 @@ def fringe_stop(data, ant, *, ref_ant, source, sign=-1,
             f"length {len(freq_mhz)}, or None."
         )
 
-    # NaN-fill RFI-flagged channels in the fringe-stopped output. Don't
-    # touch raw data['vis']; the geometric phase computation is already
-    # done but the result is meaningless without source signal there.
-    flagged = ~freq_mask
-    if flagged.any():
-        vs = fs["vis_stopped"].astype(np.complex128, copy=True)
-        vs[:, flagged, :] = np.nan + 1j * np.nan
-        fs["vis_stopped"] = vs
-        fs["vis_for_calibration"] = vs
-        if "geometric_phase" in fs:
-            gp = np.asarray(fs["geometric_phase"]).astype(np.float64, copy=True)
-            gp[:, flagged] = np.nan
-            fs["geometric_phase"] = gp
+    # Note: we do NOT NaN-fill fs['vis_stopped'] at flagged channels.
+    # Reason: fit_delay / plot_phase_vs_freq / plot_fringe_diag aren't
+    # NaN-aware (np.unwrap and np.polyfit return all-NaN once a NaN
+    # appears in the input), and silently breaking those plotters is
+    # worse than letting RFI residuals show as scatter. Downstream
+    # stages that should respect the mask (subband SVD, save_calibration)
+    # read fs['freq_mask'] and skip / zero flagged channels themselves.
+    # If you specifically want NaN gaps in your fringe-stop diagnostic,
+    # do it at plot time:
+    #     vis_for_diag = fs['vis_stopped'].copy()
+    #     vis_for_diag[:, ~fs['freq_mask'], :] = np.nan + 1j*np.nan
 
     target_labels = [
         f"Ant {ref_ant}|S{ant.snap_adc(ref_ant)[0]}A{ant.snap_adc(ref_ant)[1]} "
