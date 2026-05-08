@@ -31,7 +31,7 @@ def group_by_snap_pair(ref_snap, target_snaps):
 
 def plot_fringe_diagnostic(panels, time_unix, freq_mhz, target_labels,
                            target_snaps, ref_snap, output_dir=None,
-                           split_max=20):
+                           split_max=20, freq_mask=None):
     """Plot fringe diagnostic waterfalls grouped by SNAP pair.
 
     Parameters
@@ -53,6 +53,10 @@ def plot_fringe_diagnostic(panels, time_unix, freq_mhz, target_labels,
         Save figures here.
     split_max : int, optional
         Maximum baselines per figure before splitting (default: 20).
+    freq_mask : ndarray of bool, shape (F,), optional
+        ``True`` = good channel. When provided, flagged channels are
+        NaN-filled at plot time and render as white rows in the
+        waterfall — purely cosmetic, doesn't propagate.
 
     Returns
     -------
@@ -60,6 +64,14 @@ def plot_fringe_diagnostic(panels, time_unix, freq_mhz, target_labels,
     """
     time_hours = (time_unix - time_unix[0]) / 3600.0
     groups = group_by_snap_pair(ref_snap, target_snaps)
+
+    if freq_mask is not None:
+        flagged = ~np.asarray(freq_mask, dtype=bool)
+    else:
+        flagged = None
+
+    cmap = plt.get_cmap("RdBu").copy()
+    cmap.set_bad("white")
 
     figs = []
     for (rs, ts), indices in sorted(groups.items()):
@@ -89,8 +101,10 @@ def plot_fringe_diagnostic(panels, time_unix, freq_mhz, target_labels,
                         d = np.angle(d)
                     else:
                         d = np.mod(d + np.pi, 2 * np.pi) - np.pi
+                    if flagged is not None:
+                        d = np.where(flagged[np.newaxis, :], np.nan, d)
                     ax.pcolormesh(time_hours, freq_mhz, d.T,
-                                  cmap="RdBu", shading="auto",
+                                  cmap=cmap, shading="auto",
                                   norm=Normalize(-np.pi, np.pi))
                     if col == 0:
                         ax.set_ylabel(target_labels[bl_idx], fontsize=7)
