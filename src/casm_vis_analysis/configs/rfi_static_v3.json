@@ -1,0 +1,14 @@
+{
+  "version": 3,
+  "site": "OVRO",
+  "description": "Static RFI mask v3 (CASM at OVRO). Expanded over v1: widens the GMRS / amateur / TV-ch14 bands and adds two extra bands ('manual', 'manual2') after observing residual contamination at the v1 band edges. The 'manual2' range was further widened to 441.5-448 MHz to swallow two near-single-channel unflagged islands (441.5-442 and 447-448) that v1 left between adjacent RFI bands — too narrow to constrain a slope, sandwiched by contaminated channels. Bump the version number when bands change; keep older versions on disk for reproducibility.",
+  "bands_mhz": [
+    {"lo": 390.0, "hi": 405.0, "label": "scruff/muos?"},
+    {"lo": 434.0, "hi": 441.5, "label": "amateur_satellite"},
+    {"lo": 441.5, "hi": 448.0, "label": "manual2"},
+    {"lo": 448.0, "hi": 455.5, "label": "lmr"},
+    {"lo": 454.0, "hi": 461.0, "label": "manual"},
+    {"lo": 459.5, "hi": 473.0, "label": "gmrs_lmr"},
+    {"lo": 471.0, "hi": 488.0, "label": "uhf_tv_ch14"}
+  ]
+}

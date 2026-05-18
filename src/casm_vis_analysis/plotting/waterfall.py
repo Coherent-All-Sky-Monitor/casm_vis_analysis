@@ -10,9 +10,29 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
 
+def _median_recipe(bl_vis):
+    """Per-channel bandpass flatten + complex-median static subtract.
+
+    Computes:
+        V_norm = V / median_t(|V|)
+        V_med  = V_norm - [median_t(Re V_norm) + i*median_t(Im V_norm)]
+
+    bl_vis is treated as (T, F) complex (autocorr inputs are accepted as
+    real-typed and the result is returned complex).
+    """
+    v = np.asarray(bl_vis).astype(np.complex64, copy=False)
+    amp_med = np.nanmedian(np.abs(v), axis=0, keepdims=True)
+    amp_med = np.where(amp_med > 0, amp_med, 1.0)
+    v_norm = v / amp_med
+    static = (np.nanmedian(v_norm.real, axis=0, keepdims=True)
+              + 1j * np.nanmedian(v_norm.imag, axis=0, keepdims=True))
+    return v_norm - static
+
+
 def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
                    antenna_labels, snap_adc_labels, split_max=16,
-                   output_dir=None, diag_spectra=False, pub=False):
+                   output_dir=None, diag_spectra=False, pub=False,
+                   median_recipe=False):
     """Plot waterfall matrix for active antennas.
 
     Parameters
@@ -40,6 +60,19 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
         instead of 2D waterfall.
     pub : bool
         When True, save as PDF at 300 DPI instead of PNG at 150 DPI.
+    median_recipe : bool
+        When True, apply the per-baseline bandpass-flatten + complex-median
+        static subtract to each cell before plotting:
+
+            V_norm = V / median_t(|V|)
+            V_med  = V_norm - [median_t(Re V_norm) + i*median_t(Im V_norm)]
+
+        Every cell (diagonal and cross-correlation) then displays
+        ``Re(V_med)`` on a diverging colormap (RdBu_r), clipped at the
+        per-cell ±99th percentile of |Re(V_med)|. This removes time-static
+        instrumental terms (cable delay x crosstalk, leakage) but assumes
+        the window is long enough that any sky source sweeps through
+        enough fringe cycles for its time-median to be ~ 0. Default off.
 
     Returns
     -------
@@ -83,7 +116,24 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
                 if conjugate:
                     bl_vis = np.conj(bl_vis)
 
-                if i == j:
+                if median_recipe:
+                    # Bandpass-flatten + complex-median static subtract;
+                    # show Re(V_med) for every cell on a diverging cmap.
+                    re = _median_recipe(bl_vis).real
+                    vlim = float(np.nanpercentile(np.abs(re), 99)) or 1.0
+                    cm_med = plt.get_cmap("RdBu_r").copy()
+                    cm_med.set_bad("white")
+                    ax.pcolormesh(time_hours, freq_mhz, re.T,
+                                  cmap=cm_med, shading="auto",
+                                  norm=Normalize(-vlim, vlim))
+                    if i == j:
+                        ax.set_title(antenna_labels[i], fontsize=6)
+                    else:
+                        ax.set_title(
+                            f"{snap_adc_labels[i]} \u00d7 {snap_adc_labels[j]}",
+                            fontsize=5,
+                        )
+                elif i == j:
                     if diag_spectra:
                         # 1D time-averaged power spectrum
                         power_db = 10 * np.log10(
@@ -122,6 +172,8 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
         from casm_vis_analysis.plotting import format_time_range
         group_label = f"Waterfall ({g_idx + 1}/{len(groups)})"
         header = f"{group_label}  —  {format_time_range(time_unix)}"
+        if median_recipe:
+            header += "  ·  median recipe: V/median_t|V| − complex_median(V_norm)"
         fig.text(0.5, 0.995, header,
                  ha="center", va="top", fontsize=8, fontweight="bold",
                  family="monospace", color="0.3")

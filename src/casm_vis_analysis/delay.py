@@ -14,8 +14,37 @@ import numpy as np
 # Linear delay model: phase(f) = slope * f + intercept
 # ---------------------------------------------------------------------------
 
-def linear_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None):
-    """Fit linear delay from phase vs frequency slope.
+def linear_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None,
+               tau_max_ns=1000.0, tau_step_ns=0.5,
+               r_squared_threshold=0.7,
+               peak_ratio_threshold=2.0,
+               peak_exclusion_bins=None,
+               return_coherence=False):
+    """Fit linear delay via delay-domain coherent-sum search.
+
+    Maximises ``|sum_f vis_avg(f) * exp(-i * 2*pi*tau*f)|`` over a tau
+    grid. Does not unwrap — so missing channels (RFI gaps) cannot bias
+    the slope by a multiple of 2*pi, even when the true phase wraps
+    several times inside a gap. This matters for long-delay (cross-SNAP)
+    baselines where each ~10 MHz RFI band can hide multiple wraps.
+
+    Validity / unambiguous range
+    ----------------------------
+    For a uniform frequency grid with spacing ``dnu`` (Hz), the delay
+    domain has Nyquist limit::
+
+        tau_nyquist_ns = 1 / (2 * dnu_Hz) * 1e9
+
+    Delays beyond this alias to ``tau +/- k/dnu`` for integer k. For
+    CASM (~30.5 kHz channels) this is ~16 us, four orders of magnitude
+    larger than any cable delay, so aliasing is not a concern in
+    practice. The search range is further capped by ``tau_max_ns``
+    (default 1 us) — fits at the edge of the search range are flagged
+    as low quality via ``peak_to_secondary_ratio``.
+
+    Robust to RFI mask gaps and low-SNR channels by construction: gaps
+    just lower the SNR of the coherent sum, they cannot create
+    spurious peaks at wrong delays the way unwrap-based methods do.
 
     Parameters
     ----------
@@ -26,70 +55,223 @@ def linear_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None):
     time_mask : ndarray of bool, shape (T,), optional
         Mask selecting time samples to average over.
     freq_mask : ndarray of bool, shape (F,), optional
-        Mask selecting good frequency channels for fitting (True = good).
-        Phase is unwrapped and fit only on good channels, but the
-        correction is applied to ALL channels.
+        ``True`` = good channel. Search uses only good channels.
+    tau_max_ns : float
+        Half-width of the delay search range in ns. Capped at the
+        Nyquist delay implied by the channel spacing.
+    tau_step_ns : float
+        Coarse delay grid resolution in ns. The peak is then refined
+        with a quadratic interpolation, so sub-step precision is fine.
+    r_squared_threshold : float
+        Below this, the fit is flagged ``low_quality=True``. Catches
+        baselines whose phase isn't well described by a single linear
+        delay (heavy reflections, severe non-linear instrumental
+        phase, etc.).
+    peak_ratio_threshold : float
+        Below this, ``low_quality=True``. Catches ambiguous fits where
+        the chosen peak is not clearly the best candidate.
+    peak_exclusion_bins : int, optional
+        Half-width (in grid bins) of the window around the chosen peak
+        that is excluded when finding the secondary peak — prevents
+        the peak's own main lobe and first sidelobe ring from being
+        picked as a separate candidate. Defaults to twice the first-
+        null width of the delay-space sinc response,
+        ``ceil(2 * 1e3 / B_dominant_MHz / tau_step_ns)``, where
+        ``B_dominant_MHz`` is the longest contiguous good-channel
+        segment. Using the dominant segment (not the total span) is
+        important when heavy RFI gaps produce a tall structured
+        sidelobe ring around the main peak.
+    return_coherence : bool
+        If ``True``, the per-baseline coherence curves and tau grid
+        are included in the result for plotting. ``coherence_curves``
+        has shape ``(n_grid, n_bl)``; ``tau_grid_ns`` has shape
+        ``(n_grid,)``. Default ``False`` to keep the result small.
 
     Returns
     -------
     params : dict
-        slope: rad/MHz, intercept: rad, delay_ns: float, r_squared: float.
-        For multi-baseline input, each value is an array over baselines.
+        slope : rad/MHz
+        intercept : rad
+        delay_ns : float
+        r_squared : float
+            Coherence ratio (post-fit)^2 / (sum |v|)^2. 1.0 means all
+            samples align perfectly after de-rotation.
+        peak_to_secondary_ratio : float
+            ``coherence[peak] / max(coherence[far from peak])``. >>1
+            means the chosen delay is unambiguous; ~1 means the
+            algorithm essentially flipped a coin between two
+            candidates (low SNR, multiple delay components, or peak
+            at search-range edge).
+        low_quality : bool
+            True if ``r_squared < r_squared_threshold`` or
+            ``peak_to_secondary_ratio < peak_ratio_threshold``.
+        tau_nyquist_ns : float
+            Nyquist delay implied by the channel spacing. Reported
+            once (scalar), same for all baselines.
+        model : str
+            ``"linear"``.
+
+        For multi-baseline input, the per-baseline values are arrays
+        over baselines.
     """
     if time_mask is not None:
         vis_avg = np.mean(vis_fs[time_mask], axis=0)
     else:
         vis_avg = np.mean(vis_fs, axis=0)
 
-    # vis_avg: (F,) or (F, n_bl)
     multi_bl = vis_avg.ndim > 1
     if not multi_bl:
         vis_avg = vis_avg[:, np.newaxis]  # (F, 1)
-
     n_bl = vis_avg.shape[1]
-    phase = np.angle(vis_avg)  # (F, n_bl)
 
-    # Select good channels for fitting
     if freq_mask is not None:
         good_idx = np.where(freq_mask)[0]
-        freq_fit = freq_mhz[good_idx]
-        phase_fit = phase[good_idx]
     else:
-        freq_fit = freq_mhz
-        phase_fit = phase
+        good_idx = np.arange(len(freq_mhz))
+    f_g = freq_mhz[good_idx]
+    n_good = len(f_g)
 
-    # Unwrap phase along frequency axis (only on good channels)
-    phase_uw = np.unwrap(phase_fit, axis=0)
+    # Cap search range at the Nyquist delay implied by channel spacing.
+    df = float(np.abs(np.median(np.diff(freq_mhz))))  # MHz/channel
+    tau_nyq_ns = 0.5 / df * 1e3 if df > 0 else tau_max_ns
+    tau_max = float(min(tau_max_ns, tau_nyq_ns))
+    n_grid = max(int(2 * tau_max / tau_step_ns) + 1, 11)
+    tau_grid = np.linspace(-tau_max, tau_max, n_grid)
+    slope_grid = 2.0 * np.pi * tau_grid * 1e-3  # rad/MHz
+
+    # Exclusion window around the peak when finding the secondary peak.
+    # The relevant main-lobe width is set by the LONGEST CONTIGUOUS run
+    # of good channels (not the total span), because that segment
+    # dominates the delay-space response. With heavy RFI gaps and an
+    # asymmetric mask, the FT of the gap pattern produces a tall first
+    # sidelobe ring within ~2 first-nulls of the peak; we exclude that
+    # ring too so the "secondary" reflects an alternative delay
+    # candidate rather than the main peak's own structured shoulder.
+    if peak_exclusion_bins is None:
+        if freq_mask is not None:
+            mask_bool = np.asarray(freq_mask, dtype=bool)
+        else:
+            mask_bool = np.ones(len(freq_mhz), dtype=bool)
+        # Run-length encode True segments
+        if mask_bool.any():
+            edges = np.diff(mask_bool.astype(np.int8))
+            starts = np.where(edges == 1)[0] + 1
+            ends = np.where(edges == -1)[0] + 1
+            if mask_bool[0]:
+                starts = np.concatenate([[0], starts])
+            if mask_bool[-1]:
+                ends = np.concatenate([ends, [len(mask_bool)]])
+            # Width in MHz: count channels in segment * df
+            seg_widths_mhz = (ends - starts) * df
+            dominant_mhz = float(seg_widths_mhz.max())
+        else:
+            dominant_mhz = 1.0
+        first_null_ns = 1e3 / dominant_mhz if dominant_mhz > 0 else tau_step_ns
+        # 2 * first-null = main lobe + first sidelobe ring
+        peak_exclusion_bins = max(
+            1, int(np.ceil(2.0 * first_null_ns / tau_step_ns))
+        )
+
+    # Phasor matrix shared across baselines: (n_grid, n_good).
+    # n_grid * n_good * 16 B; e.g. 4001 * 2258 * 16 = ~144 MB. Chunk if larger.
+    bytes_full = n_grid * n_good * 16
+    if bytes_full > 200_000_000:
+        chunk = max(1, int(200_000_000 / (n_good * 16)))
+    else:
+        chunk = n_grid
 
     slopes = np.empty(n_bl)
     intercepts = np.empty(n_bl)
+    delay_ns_out = np.empty(n_bl)
     r_squared = np.empty(n_bl)
+    peak_to_secondary = np.empty(n_bl)
+    coherence_curves = np.empty((n_grid, n_bl)) if return_coherence else None
 
     for i in range(n_bl):
-        coeffs = np.polyfit(freq_fit, phase_uw[:, i], 1)
-        slopes[i] = coeffs[0]
-        intercepts[i] = coeffs[1]
-        # R-squared
-        fit_vals = np.polyval(coeffs, freq_fit)
-        ss_res = np.sum((phase_uw[:, i] - fit_vals) ** 2)
-        ss_tot = np.sum((phase_uw[:, i] - np.mean(phase_uw[:, i])) ** 2)
-        r_squared[i] = 1.0 - ss_res / (ss_tot + 1e-30)
+        v_g = vis_avg[good_idx, i]
 
-    # delay_ns = slope / (2*pi) * 1e3  (slope is rad/MHz)
-    delay_ns = slopes / (2 * np.pi) * 1e3
+        # Coherent sum at each trial slope.
+        coherence = np.empty(n_grid)
+        for start in range(0, n_grid, chunk):
+            end = min(start + chunk, n_grid)
+            phasor = np.exp(-1j * slope_grid[start:end, None] * f_g[None, :])
+            coherence[start:end] = np.abs(phasor @ v_g)
+
+        if coherence_curves is not None:
+            coherence_curves[:, i] = coherence
+
+        peak = int(np.argmax(coherence))
+        peak_value = float(coherence[peak])
+
+        # Quadratic-interp refinement around the peak.
+        if 0 < peak < n_grid - 1:
+            y0, y1, y2 = coherence[peak - 1: peak + 2]
+            denom = y0 - 2.0 * y1 + y2
+            if denom != 0:
+                shift = 0.5 * (y0 - y2) / denom
+                tau_ns = tau_grid[peak] + shift * (tau_grid[1] - tau_grid[0])
+            else:
+                tau_ns = tau_grid[peak]
+        else:
+            tau_ns = tau_grid[peak]
+
+        # Peak-to-secondary ratio: confidence in the chosen peak.
+        # Mask out a window around the global peak (its parabolic
+        # shoulders are not separate candidates) and find the next
+        # highest value.
+        lo = max(0, peak - peak_exclusion_bins)
+        hi = min(n_grid, peak + peak_exclusion_bins + 1)
+        secondary = np.concatenate([coherence[:lo], coherence[hi:]])
+        if secondary.size > 0:
+            secondary_value = float(secondary.max())
+        else:
+            secondary_value = 0.0
+        if secondary_value > 0:
+            peak_to_secondary[i] = peak_value / secondary_value
+        else:
+            peak_to_secondary[i] = np.inf
+
+        slope_i = 2.0 * np.pi * tau_ns * 1e-3
+        v_rot = v_g * np.exp(-1j * slope_i * f_g)
+        intercept_i = float(np.angle(np.sum(v_rot)))
+
+        # R-squared: post-fit coherence fraction. 1.0 means all
+        # samples align perfectly in the complex plane after de-rotation.
+        coh_after = float(np.abs(np.sum(v_rot * np.exp(-1j * intercept_i))))
+        coh_total = float(np.sum(np.abs(v_g)))
+        r_squared[i] = (coh_after / coh_total) ** 2 if coh_total > 0 else 0.0
+
+        slopes[i] = slope_i
+        intercepts[i] = intercept_i
+        delay_ns_out[i] = tau_ns
+
+    low_quality = (r_squared < r_squared_threshold) | (
+        peak_to_secondary < peak_ratio_threshold
+    )
 
     if not multi_bl:
-        slopes, intercepts, delay_ns, r_squared = (
-            slopes[0], intercepts[0], delay_ns[0], r_squared[0]
+        slopes, intercepts, delay_ns_out, r_squared, peak_to_secondary, low_quality = (
+            slopes[0], intercepts[0], delay_ns_out[0],
+            r_squared[0], peak_to_secondary[0], bool(low_quality[0]),
         )
 
-    return {
+    result = {
         "slope": slopes,
         "intercept": intercepts,
-        "delay_ns": delay_ns,
+        "delay_ns": delay_ns_out,
         "r_squared": r_squared,
+        "peak_to_secondary_ratio": peak_to_secondary,
+        "low_quality": low_quality,
+        "tau_nyquist_ns": float(tau_nyq_ns),
         "model": "linear",
     }
+    if return_coherence:
+        if not multi_bl:
+            result["coherence_curves"] = coherence_curves[:, 0]
+        else:
+            result["coherence_curves"] = coherence_curves
+        result["tau_grid_ns"] = tau_grid
+    return result
 
 
 def linear_apply(vis, freq_mhz, fit_params):
@@ -128,7 +310,7 @@ def linear_apply(vis, freq_mhz, fit_params):
 # Per-frequency phasor model: independent phase correction per channel
 # ---------------------------------------------------------------------------
 
-def phasor_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None):
+def phasor_fit(vis_fs, freq_mhz, time_mask=None, freq_mask=None, **_kwargs):
     """Fit per-frequency phasor from time-averaged visibility.
 
     Parameters
@@ -234,7 +416,8 @@ DELAY_MODELS = {
 }
 
 
-def fit_delay(vis_fs, freq_mhz, time_mask=None, freq_mask=None, model="linear"):
+def fit_delay(vis_fs, freq_mhz, time_mask=None, freq_mask=None, model="linear",
+              **kwargs):
     """Fit delay using registered model.
 
     Parameters
@@ -250,6 +433,9 @@ def fit_delay(vis_fs, freq_mhz, time_mask=None, freq_mask=None, model="linear"):
         restricted to good channels. Phasor model ignores this.
     model : str
         Model name (default 'linear').
+    **kwargs
+        Forwarded to the model's fit function (e.g. ``tau_max_ns``,
+        ``return_coherence`` for ``model='linear'``).
 
     Returns
     -------
@@ -258,7 +444,9 @@ def fit_delay(vis_fs, freq_mhz, time_mask=None, freq_mask=None, model="linear"):
     """
     if model not in DELAY_MODELS:
         raise ValueError(f"Unknown model '{model}'. Available: {list(DELAY_MODELS)}")
-    return DELAY_MODELS[model]["fit"](vis_fs, freq_mhz, time_mask, freq_mask)
+    return DELAY_MODELS[model]["fit"](
+        vis_fs, freq_mhz, time_mask, freq_mask, **kwargs
+    )
 
 
 def apply_delay(vis, freq_mhz, fit_params, model="linear"):

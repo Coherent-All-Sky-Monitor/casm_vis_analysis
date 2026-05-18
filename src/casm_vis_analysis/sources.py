@@ -19,6 +19,9 @@ CATALOG = {
     "cas_a": SkyCoord("23h23m24s", "+58d48m54s", frame="icrs"),
     "tau_a": SkyCoord("05h34m31.94s", "+22d00m52.2s", frame="icrs"),
     "cyg_a": SkyCoord("19h59m28.36s", "+40d44m02.1s", frame="icrs"),
+    "vir_a": SkyCoord("12h30m49.42s", "+12d23m28.0s", frame="icrs"),
+    # Pulsars routinely used as fold tests at low frequency.
+    "b0329_54": SkyCoord("03h32m59.41s", "+54d34m43.33s", frame="icrs"),
 }
 
 OVRO_LOCATION = EarthLocation(
@@ -46,7 +49,7 @@ def source_position(name, time_unix):
     t = Time(np.atleast_1d(time_unix), format="unix")
     if name.lower() == "sun":
         return get_sun(t)
-    key = name.lower().replace("-", "_").replace(" ", "_")
+    key = name.lower().replace("-", "_").replace(" ", "_").replace("+", "_")
     if key not in CATALOG:
         raise ValueError(f"Unknown source '{name}'. Available: sun, {', '.join(CATALOG)}")
     return CATALOG[key]

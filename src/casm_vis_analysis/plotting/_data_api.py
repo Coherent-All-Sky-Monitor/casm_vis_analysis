@@ -160,7 +160,12 @@ def plot_waterfall_data(data, ant, *, include_inactive=False, **kwargs):
     ant : AntennaMapping
     **kwargs
         Forwarded to :func:`plot_waterfall`. Common knobs: ``split_max``,
-        ``output_dir``, ``diag_spectra``, ``pub``.
+        ``output_dir``, ``diag_spectra``, ``pub``, ``median_recipe``.
+
+        ``median_recipe=True`` applies the per-baseline bandpass-flatten +
+        complex-median static subtract (``V/median_t|V| - complex_median``)
+        and renders ``Re(V_med)`` on a diverging colormap for every cell;
+        default off.
     """
     vis = _vis_dict_get(data, "vis")
     freq_mhz = _vis_dict_get(data, "freq_mhz")
