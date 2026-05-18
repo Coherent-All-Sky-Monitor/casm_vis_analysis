@@ -305,7 +305,7 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
 
     freq_mask = None
     if rfi_mask:
-        mask_data = np.load(rfi_mask)
+        mask_data = np.load(rfi_mask, allow_pickle=False)
         freq_mask = mask_data["mask"]
         print(f"Freq mask: {np.sum(freq_mask)} / {len(freq_mask)} channels "
               f"selected (True=good)")
@@ -398,7 +398,9 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
 
     phase_panels = [(lbl, d) for lbl, d in panels if lbl != "Geometric"]
     phase_out = None if show else dirs["fringe_stop"] / "phase_vs_freq.png"
-    phase_fig = plot_phase_vs_freq(
+    # plot_phase_vs_freq returns list[Figure] (may split into multiple
+    # figures when n_baselines > split_max). Extend, don't append.
+    phase_figs = plot_phase_vs_freq(
         phase_panels, freq_mhz, baseline_labels=target_labels,
         output_path=phase_out, time_unix=time_unix, time_mask=time_mask,
     )
@@ -434,5 +436,5 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
         "geometric_phase": fs["geometric_phase"], "tau_s": tau_s,
         "freq_mhz": freq_mhz, "time_unix": time_unix, "time_mask": time_mask,
         "target_aids": target_aids, "target_labels": target_labels,
-        "delay_fits": delay_fits, "figures": diag_figs + [phase_fig],
+        "delay_fits": delay_fits, "figures": list(diag_figs) + list(phase_figs),
     }

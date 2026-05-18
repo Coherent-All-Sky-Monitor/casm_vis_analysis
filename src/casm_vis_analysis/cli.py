@@ -470,19 +470,16 @@ def fit_positions_main(argv=None):
         s, a = ant.snap_adc(aid)
         return f"S{s}A{a}"
 
-    # Load RFI mask
+    # Load RFI mask (freq-axis sanity check is deferred to inside the
+    # per-obs loop once ``freq_mhz`` is known).
     freq_mask = None
+    mask_freq_axis = None
     if args.rfi_mask:
-        mask_data = np.load(args.rfi_mask)
+        mask_data = np.load(args.rfi_mask, allow_pickle=False)
         freq_mask = mask_data["mask"]
         print(f"Freq mask: {np.sum(freq_mask)} / {len(freq_mask)} channels (True=good)")
         if "freqs_mhz" in mask_data:
-            mask_freq = mask_data["freqs_mhz"]
-            if len(mask_freq) != len(freq_mhz) or abs(mask_freq[0] - freq_mhz[0]) > 0.1:
-                print(f"WARNING: RFI mask was built for "
-                      f"{mask_freq[0]:.1f}-{mask_freq[-1]:.1f} MHz "
-                      f"but data is {freq_mhz[0]:.1f}-{freq_mhz[-1]:.1f} MHz. "
-                      f"Mask may not be valid for this data.")
+            mask_freq_axis = mask_data["freqs_mhz"]
 
     # --------------- Cross-plank reference selection ---------------
     if args.cross_plank:
@@ -558,6 +555,15 @@ def fit_positions_main(argv=None):
         )
         freq_mhz = probe_data["freq_mhz"]
         time_unix = probe_data["time_unix"]
+
+        # Deferred RFI-mask freq-axis sanity check (now that freq_mhz is set).
+        if mask_freq_axis is not None:
+            if (len(mask_freq_axis) != len(freq_mhz)
+                    or abs(mask_freq_axis[0] - freq_mhz[0]) > 0.1):
+                print(f"WARNING: RFI mask was built for "
+                      f"{mask_freq_axis[0]:.1f}-{mask_freq_axis[-1]:.1f} MHz "
+                      f"but data is {freq_mhz[0]:.1f}-{freq_mhz[-1]:.1f} MHz. "
+                      f"Mask may not be valid for this data.")
 
         # Transit window and time masks
         if axis == 1:  # y-fitting
@@ -786,3 +792,121 @@ def fit_positions_main(argv=None):
     if args.show:
         import matplotlib.pyplot as plt
         plt.show()
+
+
+def validate_bf_weights_main(argv=None):
+    """Validate a deployed SNAP int8 weights file against in-memory
+    visibilities + cal. Beamforms at the deployed pointings, predicts
+    source-beam transits, and reports per-beam pass/fail.
+
+    Usage::
+
+        casm-validate-bf-weights /tmp/my_weights_int8.h5 \\
+            --cal-h5 /tmp/cal_demo.h5 \\
+            --time-start "2026-05-08 11:30" --time-end "2026-05-08 14:30" \\
+            --time-tz America/Los_Angeles \\
+            --sources sun cas-a cyg-a tau-a \\
+            --freq-band 405 433 \\
+            --output /tmp/bf_validation.png
+    """
+    from casm_io.correlator import (
+        AntennaMapping, load_format, read_visibilities,
+    )
+    from casm_vis_analysis import (
+        RFIMask, apply_rfi_mask,
+        validate_beam_weights, plot_beam_validation,
+    )
+
+    parser = argparse.ArgumentParser(
+        description="Validate SNAP beamforming weights against vis + cal."
+    )
+    parser.add_argument("int8_h5",
+                        help="Path to the deployed SNAP int8 weights HDF5.")
+    parser.add_argument("--cal-h5", required=True,
+                        help="Calibration HDF5 (the same one that was used "
+                             "to build the int8 weights).")
+    parser.add_argument("--data-root", default="/mnt",
+                        help="Root scanned for visibilities_* dirs (default: /mnt).")
+    parser.add_argument("--data-dir", default=None,
+                        help="Pin a single directory; skips auto-discovery.")
+    parser.add_argument("--format", default="layout_64ant",
+                        help="casm_io format name or JSON path (default: layout_64ant).")
+    parser.add_argument("--layout", default=None,
+                        help="Antenna layout CSV. Default: $CASM_LAYOUT_CSV.")
+    parser.add_argument("--inactive", type=int, nargs="*", default=(),
+                        help="Antenna IDs to mark inactive at runtime.")
+    parser.add_argument("--time-start", required=True,
+                        help="Start time for visibility window.")
+    parser.add_argument("--time-end", required=True,
+                        help="End time for visibility window.")
+    parser.add_argument("--time-tz", default="UTC",
+                        help="Timezone for --time-start/--time-end (default: UTC).")
+    parser.add_argument("--sources", nargs="+",
+                        default=["sun", "cas-a", "cyg-a", "tau-a"],
+                        help="Source names to test against the deployed beams.")
+    parser.add_argument("--freq-band", nargs=2, type=float,
+                        metavar=("LO_MHZ", "HI_MHZ"),
+                        default=[405.0, 433.0],
+                        help="Cleanband for freq-mean of beam power.")
+    parser.add_argument("--max-hit-panels", type=int, default=12,
+                        help="Cap on source-hit beams to plot.")
+    parser.add_argument("--n-control-beams", type=int, default=2,
+                        help="Number of no-hit beams to plot as null reference.")
+    parser.add_argument("--rfi-mask-version", type=int, default=2,
+                        help="Static RFI mask version (default: 2).")
+    parser.add_argument("--output", "-o", default=None,
+                        help="Write PNG figure here (default: don't save).")
+    parser.add_argument("--show", action="store_true",
+                        help="Display the figure (uses interactive backend).")
+    parser.add_argument("--quiet", action="store_true",
+                        help="Suppress visibility-load progress output.")
+    args = parser.parse_args(argv)
+
+    fmt = load_format(args.format)
+    ant = AntennaMapping.load(args.layout)
+    if args.inactive:
+        ant = ant.with_inactive(list(args.inactive))
+
+    data = read_visibilities(
+        time_start=args.time_start,
+        time_end=args.time_end,
+        time_tz=args.time_tz,
+        data_root=args.data_root,
+        data_dir=args.data_dir,
+        fmt=fmt,
+        verbose=not args.quiet,
+    )
+    apply_rfi_mask(data, RFIMask.from_static(version=args.rfi_mask_version))
+
+    from bf_weights_generator import load_calibration_weights
+    cal_w = load_calibration_weights(args.cal_h5)
+
+    result = validate_beam_weights(
+        int8_h5=args.int8_h5,
+        data=data, ant=ant, cal_weights=cal_w,
+        sources=tuple(args.sources),
+        freq_band_mhz=tuple(args.freq_band),
+        max_hit_panels=args.max_hit_panels,
+        n_control_beams=args.n_control_beams,
+    )
+
+    n_pass = sum(1 for m in result["per_beam_metrics"].values()
+                 if m.get("expected_hit") and m["pass"])
+    n_total = sum(1 for m in result["per_beam_metrics"].values()
+                  if m.get("expected_hit"))
+    print(f"Beams with predicted source transit: {n_total}, passing ratio>=5: {n_pass}")
+    for bi, m in sorted(result["per_beam_metrics"].items()):
+        if m.get("expected_hit"):
+            tag = "PASS" if m["pass"] else "FAIL"
+            print(f"  [{tag}] beam {bi:3d}  ratio={m['ratio']:6.2f}  "
+                  f"sources={m['sources']}")
+        else:
+            print(f"  [ctrl] beam {bi:3d}  peak_abs={m['peak_abs']:.2e}")
+
+    if args.output is not None or args.show:
+        fig = plot_beam_validation(result, output_path=args.output)
+        if args.output:
+            print(f"Saved figure: {args.output}")
+        if args.show:
+            import matplotlib.pyplot as plt
+            plt.show()
