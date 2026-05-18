@@ -76,6 +76,19 @@ validation/
 *.h5
 *.hdf5
 *.fits
+# Allow synthetic .npz fixtures shipped with tests.
+!tests/**/*.npz
+
+# scratch artifacts (review MF-7)
+# Note: notebook outputs are intentionally NOT gitignored because the
+# canonical walkthrough notebooks ARE committed with outputs as the
+# verified tutorial reference.
+notebooks/images/
+notebooks/svd_*.png
+notebooks/*.jpg
+notebooks/pdmp.*
+notebooks/delay_diagnostics_example.py
+cyg-a_single_baseline.jpg
 
 # Logs
 *.log
