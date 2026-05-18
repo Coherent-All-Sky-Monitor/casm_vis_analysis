@@ -1,8 +1,8 @@
 # casm_vis_analysis
 
-Fringe-stopping, delay correction, antenna-layout pipeline, and diagnostic plotting for CASM correlator visibilities.
+Fringe-stopping, delay correction, off-source visibility tools, beamformer validation, and diagnostic plotting for CASM correlator visibilities.
 
-## Install 
+## Install
 
 ```bash
 source ~/software/dev/casm_venvs/casm_offline_env/bin/activate
@@ -12,12 +12,31 @@ pip install -e .
 
 ## Surfaces
 
-Every operation in this package exposes both:
+The package exposes three CLIs plus a richer Python API. The CLIs are thin wrappers over `runners.py` — the same orchestration code drives both surfaces.
 
-- A **Python API** (returns a result dict) 
-- A **CLI** with matching flags 
+CLI entry points (`pyproject.toml [project.scripts]`):
 
-Both routes call the same orchestration code in `casm_vis_analysis/runners.py` (autocorr / waterfall / fringe-stop) and `casm_vis_analysis/layout/` (sync / build).
+- `casm-autocorr` → per-SNAP autocorrelation power spectra
+- `casm-waterfall` → upper-triangle waterfall matrix
+- `casm-fringe-stop` → fringe-stop + optional delay correction + diagnostics
+
+Supporting CLIs:
+
+- `casm-viz-data-span` — survey a directory and list observations
+- `casm-fit-positions` — solar fringe-stopping antenna position fits
+- `casm-validate-bf-weights` — validate a deployed SNAP int8 weights file
+- `casm-sync-wiring`, `casm-build-layout` — antenna layout pipeline
+
+The Python API also covers off-source baselines, beam power vs time, and per-source validation — see [Other Python APIs](#other-python-apis) below.
+
+## Walkthrough notebooks
+
+Two end-to-end tutorial notebooks live in `notebooks/` with their outputs committed as the verified reference:
+
+- `notebooks/casm_calibration_beamforming_walkthrough.ipynb` — SVD calibration + beamformer validation
+- `notebooks/casm_pulsar_search_walkthrough.ipynb` — beamformed visibilities → filterbank → prepfold
+
+Use them as the canonical starting point before reaching for the lower-level APIs.
 
 ## Antenna layout pipeline
 
@@ -162,6 +181,50 @@ casm-fit-positions \
   --output-dir ./output \
   --output-layout corrected_layout.csv
 ```
+
+### casm-validate-bf-weights — round-trip a deployed int8 weights file
+
+```bash
+casm-validate-bf-weights /tmp/my_weights_int8.h5 \
+  --cal-h5 /tmp/cal_demo.h5 \
+  --time-start "2026-05-08 11:30" --time-end "2026-05-08 14:30" \
+  --time-tz America/Los_Angeles \
+  --sources sun cas-a cyg-a tau-a \
+  --freq-band 405 433 \
+  --output /tmp/bf_validation.png
+```
+
+Beamforms at every deployed pointing using the same in-memory visibilities + cal that built the int8 file, predicts which sources cross which beams during the window, and reports per-beam pass/fail.
+
+## Other Python APIs
+
+The compose-friendly Python API exposes more than the three primary CLIs:
+
+```python
+from casm_vis_analysis import (
+    # off-source / static visibility
+    build_static_visibility,           # (vis, freq_mhz, time_unix) -> static template
+    find_quiet_windows,                # locate Sun/source-free LST intervals
+    average_visibility,
+    subtract_static_visibility,
+    save_static_visibility, load_static_visibility,
+    DEFAULT_ALTITUDE_CAPS_OVRO,
+    # beamformer power vs time (cross-only, coherent)
+    beam_power_vs_time, plot_beam_power,
+    # deployed-int8 validation
+    validate_source,                   # one-source pass/fail vs predicted transit
+    validate_source_at_time,           # snapshot at a chosen time
+    validate_beam_weights,             # multi-source orchestrator (CLI mirror)
+    find_source_beam_transits,
+    load_beams_from_int8,
+    plot_source_validation, plot_beam_validation,
+    print_source_validation_summary,
+    # RFI
+    RFIMask, apply_rfi_mask,
+)
+```
+
+Typical workflow: load visibilities → `apply_rfi_mask` → `build_static_visibility` (sets the off-source floor) → `beam_power_vs_time` toward known sources → if you have a deployed int8 file, run `validate_source` for hard pass/fail. The walkthrough notebooks chain these end-to-end.
 
 ## Testing
 
