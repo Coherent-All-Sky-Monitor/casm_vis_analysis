@@ -31,7 +31,7 @@ def group_by_snap_pair(ref_snap, target_snaps):
 
 def plot_fringe_diagnostic(panels, time_unix, freq_mhz, target_labels,
                            target_snaps, ref_snap, output_dir=None,
-                           split_max=20, freq_mask=None):
+                           split_max=20, freq_mask=None, time_tz="UTC"):
     """Plot fringe diagnostic waterfalls grouped by SNAP pair.
 
     Parameters
@@ -114,7 +114,7 @@ def plot_fringe_diagnostic(panels, time_unix, freq_mhz, target_labels,
                 snap_title += f" (part {part_idx + 1}/{n_parts})"
             if time_unix is not None:
                 from casm_vis_analysis.plotting import format_time_range
-                fig.text(0.5, 0.99, format_time_range(time_unix),
+                fig.text(0.5, 0.99, format_time_range(time_unix, time_tz),
                          ha="center", va="top", fontsize=8, family="monospace",
                          color="0.35")
                 fig.text(0.5, 0.955, snap_title,

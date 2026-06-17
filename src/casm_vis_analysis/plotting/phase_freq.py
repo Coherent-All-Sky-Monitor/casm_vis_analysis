@@ -18,7 +18,8 @@ import matplotlib.pyplot as plt
 
 def plot_phase_vs_freq(panels, freq_mhz, baseline_labels=None,
                        unwrap=True, output_path=None, time_unix=None,
-                       time_mask=None, freq_mask=None, split_max=8):
+                       time_mask=None, freq_mask=None, split_max=8,
+                       time_tz="UTC"):
     """Plot phase vs frequency for multiple processing stages.
 
     Parameters
@@ -129,7 +130,7 @@ def plot_phase_vs_freq(panels, freq_mhz, baseline_labels=None,
             header_lines.append(f"Phase vs freq ({part_idx + 1}/{n_parts})")
         if time_unix is not None:
             from casm_vis_analysis.plotting import format_time_range
-            header_lines.append(format_time_range(time_unix))
+            header_lines.append(format_time_range(time_unix, time_tz))
         if header_lines:
             fig.text(0.5, 0.995, "  —  ".join(header_lines),
                      ha="center", va="top", fontsize=9, family="monospace",

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 def plot_autocorr(vis, freq_mhz, antenna_labels, time_avg=True,
                   freq_mask=None, output_path=None, ncols=4,
                   time_unix=None, snap_label=None, scale="dB",
-                  show_grid=True):
+                  show_grid=True, time_tz="UTC"):
     """Plot autocorrelation power spectra on a grid.
 
     Parameters
@@ -75,7 +75,7 @@ def plot_autocorr(vis, freq_mhz, antenna_labels, time_avg=True,
         top_margin = 1.0 - header_inches / fig_h
         if has_time:
             from casm_vis_analysis.plotting import format_time_range
-            fig.text(0.5, 0.99, format_time_range(time_unix),
+            fig.text(0.5, 0.99, format_time_range(time_unix, time_tz),
                      ha="center", va="top", fontsize=8, family="monospace",
                      color="0.35")
         if has_snap:

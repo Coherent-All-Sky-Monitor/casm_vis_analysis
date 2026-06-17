@@ -904,7 +904,8 @@ def validate_bf_weights_main(argv=None):
             print(f"  [ctrl] beam {bi:3d}  peak_abs={m['peak_abs']:.2e}")
 
     if args.output is not None or args.show:
-        fig = plot_beam_validation(result, output_path=args.output)
+        fig = plot_beam_validation(result, output_path=args.output,
+                                   time_tz=args.time_tz)
         if args.output:
             print(f"Saved figure: {args.output}")
         if args.show:

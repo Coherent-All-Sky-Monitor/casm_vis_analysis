@@ -158,7 +158,7 @@ def run_autocorr(*, data_dir=None, obs=None, format, layout=None,
         fig = plot_autocorr(snap_vis, freq_mhz, labels,
                             output_path=path, ncols=ncols,
                             time_unix=time_unix, snap_label=f"SNAP {snap_id}",
-                            scale=scale)
+                            scale=scale, time_tz=time_tz)
         figures.append(fig)
         if not show:
             print(f"Saved: {path}")
@@ -236,6 +236,7 @@ def run_waterfall(*, data_dir=None, obs=None, format, layout=None,
         output_dir=None if show else dirs["waterfall"],
         diag_spectra=diag_spectra,
         pub=pub,
+        time_tz=time_tz,
     )
     if show:
         import matplotlib.pyplot as plt
@@ -392,6 +393,7 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
     diag_figs = plot_fringe_diagnostic(
         panels, time_unix, freq_mhz, target_labels,
         target_snaps, ref_snap_id, output_dir=fringe_out,
+        time_tz=time_tz,
     )
     if not show:
         print(f"Saved fringe diagnostics to: {dirs['fringe_stop']}")
@@ -403,6 +405,7 @@ def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
     phase_figs = plot_phase_vs_freq(
         phase_panels, freq_mhz, baseline_labels=target_labels,
         output_path=phase_out, time_unix=time_unix, time_mask=time_mask,
+        time_tz=time_tz,
     )
     if not show:
         print(f"Saved phase vs freq to: {dirs['fringe_stop']}")

@@ -402,23 +402,30 @@ def validate_beam_weights(
     }
 
 
-def plot_beam_validation(result: Mapping, *, output_path=None):
+def plot_beam_validation(result: Mapping, *, output_path=None, time_tz="UTC"):
     """Multi-panel figure: power(t) per selected beam with transit windows.
 
     One subplot per selected beam (source-hit beams first, then any
     controls). Per-source colored shaded regions show predicted in-beam
     intervals; vertical line marks the predicted peak; pass/fail badge
     in the corner. Returns a matplotlib Figure.
+
+    ``time_tz`` is an IANA timezone name (e.g. ``"America/Los_Angeles"``)
+    or ``"UTC"``; the x-axis is DST-aware and labeled with the actual
+    abbreviation in effect (PDT/PST/UTC).
     """
     import matplotlib.pyplot as plt
     from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(time_tz) if time_tz != "UTC" else timezone.utc
 
     beams = result["beams"]
     hits = result["hits"]
     sel = list(result["selected_beam_idxs"]) + list(result["control_beam_idxs"])
     metrics = result["per_beam_metrics"]
     times_unix = np.asarray(result["time_unix"])
-    times_dt = [datetime.fromtimestamp(t, tz=timezone.utc) for t in times_unix]
+    times_dt = [datetime.fromtimestamp(t, tz=tz) for t in times_unix]
 
     # Per-source color map for the shaded transit windows.
     src_colors: dict[str, str] = {}
@@ -454,9 +461,9 @@ def plot_beam_validation(result: Mapping, *, output_path=None):
 
         beam_hits = [h for h in hits if h.beam_idx == bi]
         for h in beam_hits:
-            entry_dt = datetime.fromtimestamp(h.entry_unix, tz=timezone.utc)
-            exit_dt = datetime.fromtimestamp(h.exit_unix, tz=timezone.utc)
-            peak_dt = datetime.fromtimestamp(h.peak_unix, tz=timezone.utc)
+            entry_dt = datetime.fromtimestamp(h.entry_unix, tz=tz)
+            exit_dt = datetime.fromtimestamp(h.exit_unix, tz=tz)
+            peak_dt = datetime.fromtimestamp(h.peak_unix, tz=tz)
             color = src_colors[h.source]
             ax.axvspan(entry_dt, exit_dt, color=color, alpha=0.18)
             ax.axvline(peak_dt, color=color, lw=1, alpha=0.6, ls="--")
@@ -478,9 +485,10 @@ def plot_beam_validation(result: Mapping, *, output_path=None):
 
     for ax in axes_flat[n:]:
         ax.axis("off")
+    tz_label = (times_dt[0].strftime("%Z") if times_dt else "") or "UTC"
     for ax in axes_flat[-ncols:]:
         if ax.get_visible():
-            ax.set_xlabel("UTC time")
+            ax.set_xlabel(f"{tz_label} time")
 
     # Top legend: one entry per source seen.
     if sources_seen:

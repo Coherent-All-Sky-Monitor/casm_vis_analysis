@@ -32,7 +32,7 @@ def _median_recipe(bl_vis):
 def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
                    antenna_labels, snap_adc_labels, split_max=16,
                    output_dir=None, diag_spectra=False, pub=False,
-                   median_recipe=False):
+                   median_recipe=False, time_tz="UTC"):
     """Plot waterfall matrix for active antennas.
 
     Parameters
@@ -171,7 +171,7 @@ def plot_waterfall(vis, freq_mhz, time_unix, nsig, packet_indices,
         # Compact single-line header
         from casm_vis_analysis.plotting import format_time_range
         group_label = f"Waterfall ({g_idx + 1}/{len(groups)})"
-        header = f"{group_label}  —  {format_time_range(time_unix)}"
+        header = f"{group_label}  —  {format_time_range(time_unix, time_tz)}"
         if median_recipe:
             header += "  ·  median recipe: V/median_t|V| − complex_median(V_norm)"
         fig.text(0.5, 0.995, header,
