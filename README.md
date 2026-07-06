@@ -34,7 +34,7 @@ data = read_visibilities(
 # sign=-1 is the CASM convention — never flip it
 fs = fringe_stop(data, ant, ref_ant=10, source="sun", sign=-1)
 
-# fs["vis_for_calibration"] is the SVD calibration contract
+# fs["vis_for_calibration"] is what casm_calibrator.svd_calibrate consumes
 # fs["time_mask"] selects samples when the Sun is above min_alt_deg
 ```
 

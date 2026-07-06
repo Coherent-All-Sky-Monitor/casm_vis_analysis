@@ -37,7 +37,7 @@ fs = fringe_stop(
 |---|---|---|
 | `vis` | (T, F, n_bl) | Raw visibilities, sliced to ref-target baselines |
 | `vis_stopped` | (T, F, n_bl) | Fringe-stopped visibilities |
-| `vis_for_calibration` | (T, F, n_bl) | Alias of `vis_stopped` — this is the SVD calibration contract |
+| `vis_for_calibration` | (T, F, n_bl) | Alias of `vis_stopped` — this is what `casm_calibrator.svd_calibrate` takes as input |
 | `geometric_phase` | (T, F, n_bl) | Applied phase in radians |
 | `tau_s` | (T, n_bl) | Geometric delay in seconds |
 | `freq_mhz` | (F,) | Frequency axis |
