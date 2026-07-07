@@ -99,3 +99,7 @@ Thumbs.db
 
 # PyPI config
 .pypirc
+
+# All-sky movies rendered by the walkthrough notebook
+notebooks/*.mp4
+notebooks/*.gif
