@@ -22,7 +22,7 @@ from casm_vis_analysis.rfi import RFIMask, apply_rfi_mask
 from casm_vis_analysis.offsource import (
     build_static_visibility, DEFAULT_ALTITUDE_CAPS_OVRO,
     find_quiet_windows, average_visibility, subtract_static_visibility,
-    plot_offsource_diagnostic,
+    plot_offsource_diagnostic, plot_quiet_window_altitudes,
     save_static_visibility, load_static_visibility,
 )
 from casm_vis_analysis.beam_power import beam_power_vs_time, plot_beam_power
@@ -71,7 +71,7 @@ __all__ = [
     "RFIMask", "apply_rfi_mask",
     "build_static_visibility", "DEFAULT_ALTITUDE_CAPS_OVRO",
     "find_quiet_windows", "average_visibility", "subtract_static_visibility",
-    "plot_offsource_diagnostic",
+    "plot_offsource_diagnostic", "plot_quiet_window_altitudes",
     "save_static_visibility", "load_static_visibility",
     "beam_power_vs_time", "plot_beam_power",
     "BeamHit", "load_beams_from_int8", "find_source_beam_transits",

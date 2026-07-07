@@ -512,8 +512,91 @@ def load_static_visibility(path) -> dict:
 
 
 # --------------------------------------------------------------------- #
-# 5. Diagnostic plot                                                     #
+# 5. Diagnostic plots                                                    #
 # --------------------------------------------------------------------- #
+
+def plot_quiet_window_altitudes(
+    static: Mapping,
+    altitude_caps: Mapping[str, float] | None = None,
+    *,
+    time_tz: str = "America/Los_Angeles",
+    step_s: float = 300.0,
+    output_path=None,
+):
+    """Altitude tracks of the bright calibrators on the static night.
+
+    Plots each capped source's altitude over the full 24 h of the night
+    ``build_static_visibility`` searched, shades the quiet window it
+    chose, and draws each source's altitude cap as a dashed line in the
+    same color. The window should sit where every track is under its
+    cap — if a track pokes above its dashed line inside the shading,
+    the static template is contaminated.
+
+    Also prints a per-source min/max altitude check for the window.
+
+    Parameters
+    ----------
+    static : Mapping
+        Result of :func:`build_static_visibility` (needs ``date`` and
+        ``window_unix``), or any dict carrying those two keys.
+    altitude_caps : dict, optional
+        ``{source: max_alt_deg}`` — the caps the search used. Defaults
+        to :data:`DEFAULT_ALTITUDE_CAPS_OVRO`. Its keys decide which
+        sources are drawn.
+    time_tz : str
+        IANA timezone for the x axis. Default ``America/Los_Angeles``.
+    step_s : float
+        Track sampling cadence in seconds. Default 5 min.
+    output_path : path-like, optional
+        Save the figure here. ``None`` → don't save.
+
+    Returns
+    -------
+    matplotlib Figure
+    """
+    import matplotlib.pyplot as plt
+    from datetime import datetime, date as _date_cls
+    from zoneinfo import ZoneInfo
+
+    caps = dict(altitude_caps) if altitude_caps else dict(DEFAULT_ALTITUDE_CAPS_OVRO)
+    w0, w1 = (float(t) for t in static["window_unix"])
+
+    tz = ZoneInfo(time_tz)
+    d = static["date"]
+    d = d if isinstance(d, _date_cls) else _date_cls.fromisoformat(str(d))
+    midnight = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz).timestamp()
+    t_grid = midnight + np.arange(0.0, 24 * 3600, step_s)
+    hours = (t_grid - midnight) / 3600.0
+
+    palette = ["#DDAA33", "#4477AA", "#CC3311", "#117733", "#AA3377"]
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    for color, (src, cap) in zip(palette, caps.items()):
+        alt, _ = source_altaz(src, t_grid)
+        ax.plot(hours, alt, color=color, lw=1.4, label=src)
+        ax.axhline(cap, color=color, ls="--", lw=0.9, alpha=0.6)
+
+    ax.axvspan((w0 - midnight) / 3600, (w1 - midnight) / 3600,
+               color="0.7", alpha=0.35, label="quiet window")
+    ax.axhline(0, color="k", lw=0.8)
+    ax.set_xlim(0, 24)
+    ax.set_xticks(range(0, 25, 2))
+    ax.set_xlabel(f"{d} local time (hours, {time_tz})")
+    ax.set_ylabel("altitude (deg)")
+    ax.set_title("Bright calibrators on the static night (dashed = altitude caps)")
+    ax.legend(loc="upper left", ncol=len(caps) + 1, fontsize=9)
+    ax.grid(alpha=0.3)
+
+    t_win = np.linspace(w0, w1, 20)
+    for src, cap in caps.items():
+        alt, _ = source_altaz(src, t_win)
+        status = "OK" if alt.max() < cap else "VIOLATES CAP"
+        print(f"  {src:7s} in window: {alt.min():6.1f} .. {alt.max():6.1f} deg "
+              f"(cap {cap:5.1f})  {status}")
+
+    if output_path is not None:
+        fig.savefig(output_path, dpi=130, bbox_inches="tight")
+    return fig
+
 
 def plot_offsource_diagnostic(
     data: Mapping,

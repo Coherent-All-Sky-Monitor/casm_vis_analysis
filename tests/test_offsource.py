@@ -385,3 +385,27 @@ def test_plot_offsource_diagnostic_runs_and_shades_window():
     # Frequency axis spans the data band.
     xlim_f = ax_f.get_xlim()
     assert xlim_f[0] <= freq_mhz.min() and xlim_f[1] >= freq_mhz.max()
+
+
+def test_plot_quiet_window_altitudes_runs_and_checks_caps(capsys):
+    """Smoke test: 24 h tracks drawn, window shaded, cap check printed."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from casm_vis_analysis import plot_quiet_window_altitudes
+
+    tz = ZoneInfo("America/Los_Angeles")
+    w0 = datetime(2026, 6, 27, 20, 15, tzinfo=tz).timestamp()
+    static = {"date": "2026-06-27", "window_unix": (w0, w0 + 3600)}
+    caps = {"sun": 0.0, "tau-a": 0.0, "cyg-a": 55.0, "cas-a": 30.0}
+
+    fig = plot_quiet_window_altitudes(static, caps, step_s=1800.0)
+    ax = fig.axes[0]
+    # One altitude track per capped source.
+    assert len(ax.lines) >= len(caps)
+    # The quiet window is shaded (axvspan -> patch).
+    assert len(ax.patches) >= 1
+    # Per-source cap check printed, all sources present and within caps.
+    out = capsys.readouterr().out
+    for src in caps:
+        assert src in out
+    assert "VIOLATES" not in out
