@@ -3,13 +3,16 @@
 The layout pipeline turns CAsMan (the assembly database, pulled from GitHub
 releases) plus the surveyed positions CSV into the consumer layout CSV that
 downstream tools read. This command wraps the two lower-level stages
-(``casm-sync-wiring`` and ``casm-build-layout``) behind three verbs:
+(``casm-sync-wiring`` and ``casm-build-layout``) behind four verbs:
 
-* ``casm-layout status`` — pull CAsMan, then print a one-line summary of how the
+* ``casm-layout status``  — pull CAsMan, then print a one-line summary of how the
   current layout differs from what CAsMan now says. Read-only.
-* ``casm-layout diff``   — the same, but print the full position-level diff plus
+* ``casm-layout diff``    — the same, but print the full position-level diff plus
   the underlying wiring-row detail. Read-only.
-* ``casm-layout apply``  — show the diff, confirm, then regenerate
+* ``casm-layout preview`` — print the layout ``apply`` would write, marking each
+  row added/changed/unchanged against the current layout; ``-o`` saves the full
+  CSV. Read-only (apart from ``-o``).
+* ``casm-layout apply``   — show the diff, confirm, then regenerate
   ``casm_wiring.csv`` and write a new dated layout CSV, updating the ``current``
   symlink.
 
@@ -31,7 +34,9 @@ from casm_vis_analysis.layout import build, sync
 from casm_vis_analysis.layout.casman_pull import pull_casman
 from casm_vis_analysis.layout.diff import (
     diff_layouts,
+    occupied_count,
     print_diff,
+    render_preview_table,
     resolve_current_layout,
     summarize_diff,
 )
@@ -160,6 +165,29 @@ def _cmd_diff(args) -> int:
     return 0
 
 
+def _cmd_preview(args) -> int:
+    ctx = _prepare(args)
+
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        ctx.cand_layout.to_csv(out_path, index=False)
+        n = len(ctx.cand_layout)
+        m = int((ctx.cand_layout["functional"] == 1).sum())
+        print(f"wrote {out_path} ({n} rows, {m} active)")
+        return 0
+
+    d = diff_layouts(ctx.cur_df, ctx.cand_layout)
+    print()
+    render_preview_table(ctx.cand_layout, ctx.cur_df, d)
+    print()
+    print(summarize_diff(d))
+    n_pad = len(ctx.cand_layout) - occupied_count(ctx.cand_layout)
+    print(f"(+{n_pad} padding rows for unconnected inputs not shown; "
+          f"use -o to get the full CSV)")
+    return 0
+
+
 def _cmd_apply(args) -> int:
     ctx = _prepare(args)
     d = diff_layouts(ctx.cur_df, ctx.cand_layout)
@@ -228,12 +256,19 @@ def main(argv=None):
         description=__doc__.splitlines()[0],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = parser.add_subparsers(dest="command", metavar="{status,diff,apply}")
+    sub = parser.add_subparsers(dest="command",
+                                metavar="{status,diff,preview,apply}")
 
     sub.add_parser("status", parents=[parent],
                    help="Pull CAsMan and print a one-line diff summary (read-only).")
     sub.add_parser("diff", parents=[parent],
                    help="Print the full position-level + wiring-row diff (read-only).")
+    p_preview = sub.add_parser("preview", parents=[parent],
+                               help="Print the layout apply would write, marking each "
+                                    "row against the current layout (read-only).")
+    p_preview.add_argument("-o", "--output", default=None,
+                           help="Instead of the table, write the full candidate layout "
+                                "CSV to this file (exactly what apply would write).")
     p_apply = sub.add_parser("apply", parents=[parent],
                              help="Regenerate the wiring + layout CSVs after confirmation.")
     p_apply.add_argument("-y", "--yes", action="store_true",
@@ -247,7 +282,8 @@ def main(argv=None):
         parser.print_help()
         return 2
 
-    dispatch = {"status": _cmd_status, "diff": _cmd_diff, "apply": _cmd_apply}
+    dispatch = {"status": _cmd_status, "diff": _cmd_diff,
+                "preview": _cmd_preview, "apply": _cmd_apply}
     return dispatch[args.command](args)
 
 

@@ -237,3 +237,66 @@ def print_diff(diff: dict) -> None:
                                for col, (old, new) in r["changes"].items())
             print(f"    snap={r['snap']:>2d} adc={r['adc']:>2d}  "
                   f"{_cell(r['row'], r['col']):>8s}: {detail}")
+
+
+def occupied_count(df: pd.DataFrame) -> int:
+    """Number of meaningfully-occupied ``(snap, adc)`` feeds in a layout frame."""
+    return sum(1 for r in _feed_map(df).values() if r["occupied"])
+
+
+def _preview_header() -> str:
+    return ("  "
+            f"{'snap':>4s} {'adc':>4s} {'row':<9s} {'col':<3s} "
+            f"{'x':>10s} {'y':>10s} {'z':>10s} {'func':>4s} "
+            f"{'snap_ip':<15s} {'slot':<4s} {'part_num':<10s}")
+
+
+def _preview_line(marker: str, r: dict) -> str:
+    return (f"{marker} "
+            f"{r['snap']:>4d} {r['adc']:>4d} {r['row']:<9s} {r['col']:<3s} "
+            f"{r['x']:>10.3f} {r['y']:>10.3f} {r['z']:>10.3f} {r['functional']:>4d} "
+            f"{r['snap_ip']:<15s} {r['slot']:<4s} {r['antenna_part_num']:<10s}")
+
+
+def _preview_was(o: dict) -> str:
+    return (f"    was: {o['row']} {o['col']} "
+            f"x={o['x']:.3f} y={o['y']:.3f} z={o['z']:.3f} "
+            f"{o['snap_ip']} {o['antenna_part_num']}").rstrip()
+
+
+def render_preview_table(candidate_df: pd.DataFrame,
+                         current_df: pd.DataFrame | None,
+                         diff: dict) -> None:
+    """Print the candidate layout as an aligned table, one line per occupied
+    ``(snap, adc)`` feed, with a leading marker comparing it to the current
+    layout: ``+`` added/enabled, ``~`` moved/metadata-changed (a ``was:`` line
+    follows), space unchanged. Feeds present in the current layout but gone
+    (or turned off) in the candidate are listed afterwards with ``-``.
+    """
+    cand = _feed_map(candidate_df)
+    cur = _feed_map(current_df) if current_df is not None else {}
+
+    def _keys(cat):
+        return {(e["snap"], e["adc"]) for e in diff[cat]}
+
+    plus = _keys("added") | _keys("enabled")
+    tilde = _keys("moved") | _keys("changed")
+    disabled = _keys("disabled")
+    removed = _keys("removed")
+
+    print(_preview_header())
+    for key in sorted(k for k, r in cand.items() if r["occupied"]):
+        if key in disabled:
+            continue  # shown in the trailing removed/disabled section instead
+        r = cand[key]
+        marker = "+" if key in plus else ("~" if key in tilde else " ")
+        print(_preview_line(marker, r))
+        if marker == "~" and key in cur:
+            print(_preview_was(cur[key]))
+
+    trailing = sorted(removed | disabled)
+    if trailing:
+        for key in trailing:
+            r = cur.get(key)
+            if r is not None:
+                print(_preview_line("-", r))

@@ -157,12 +157,13 @@ Use `casm-layout` to keep the layout in sync with CAsMan:
 ```bash
 casm-layout status   # is the current layout up to date with CAsMan?
 casm-layout diff     # show exactly what changed
+casm-layout preview  # show the layout apply would write
 casm-layout apply    # write a new layout (asks for confirmation first)
 ```
 
-All three download the latest CAsMan database snapshot from GitHub before
-comparing (skipped when nothing changed upstream). Use `--offline` to work
-with the local copy instead.
+Each of these downloads the latest CAsMan database snapshot from GitHub
+before comparing (skipped when nothing changed upstream). Use `--offline`
+to work with the local copy instead.
 
 Example:
 
@@ -180,6 +181,10 @@ run 'casm-layout diff' for details
 
 `diff` lists every added, removed, moved, enabled and disabled position
 (one entry per SNAP input), plus the underlying wiring rows.
+
+`casm-layout preview` prints the layout that `apply` would write, marking each
+row as added, changed or unchanged against the current layout; `-o file.csv`
+saves it instead of printing. It writes nothing unless you pass `-o`.
 
 `status` and `diff` never write anything. `apply` shows the same diff, asks
 `Apply these changes? [y/N]`, and then rewrites `casm_wiring.csv` (the old

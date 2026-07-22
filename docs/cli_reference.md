@@ -204,6 +204,7 @@ The diff is reported per `(snap, adc)`.
 ```bash
 casm-layout status   # pull CAsMan, print a one-line diff summary (read-only)
 casm-layout diff     # pull CAsMan, print the full position + wiring-row diff (read-only)
+casm-layout preview  # print the layout apply would write, marked against the current one (read-only)
 casm-layout apply    # show the diff, confirm, then rewrite casm_wiring.csv + the dated layout CSV
 ```
 
@@ -217,6 +218,17 @@ run 'casm-layout diff' for details
 `diff` additionally lists, per `(snap, adc)`: `ADDED` / `REMOVED` / `MOVED` /
 `ENABLED` / `DISABLED` / `CHANGED` position-level sections, then a
 wiring-row detail section (added/removed/changed CAsMan rows).
+
+`preview` prints the candidate layout `apply` would write as an aligned
+table, one line per occupied `(snap, adc)` input in `(snap, adc)` order,
+each row marked `+` (added/enabled), `~` (moved/metadata-changed, with a
+`was:` line showing the old values), or a space (unchanged). Inputs present
+in the current layout but gone from the candidate are listed afterwards with
+`-`. Padding rows for unconnected inputs are omitted from the table.
+`-o FILE` / `--output FILE` writes the full candidate CSV (padding rows
+included, exactly what `apply` would write) to `FILE` instead of printing the
+table. `preview` never touches the layout dir; only `-o` writes, and only to
+the path given.
 
 `apply` shows the diff, asks `Apply these changes? [y/N]` (skip with
 `-y`/`--yes`), rewrites `casm_wiring.csv` (`.bak` backup; aborts if CAsMan
@@ -232,6 +244,7 @@ repoints the `current` symlink at it.
 | `--snap-map` | Trusted `(chassis, slot) -> (feng_id, snap_ip)` map (default: `casm_snap_map.csv`) |
 | `--wiring` | Wiring CSV (default: `casm_wiring.csv`) |
 | `--layout-dir` | Directory holding the layout CSVs + `current` symlink (default: `/home/casm/software/dev/antenna_layouts`) |
+| `-o`, `--output` | (`preview` only) Write the full candidate layout CSV to this file instead of printing the table. |
 | `-y`, `--yes` | (`apply` only) Skip the interactive confirmation prompt. |
 | `--force` | (`apply` only) Bypass the <5-antenna sanity guard. |
 

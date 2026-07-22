@@ -590,3 +590,57 @@ class TestCliNumericSlotCsvRoundTrip:
         assert "layout is up to date with CAsMan" in out
         assert "wiring-metadata" not in out
         assert "changed" not in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# 6. preview subcommand
+# ---------------------------------------------------------------------------
+
+class TestCliPreview:
+    def test_preview_prints_marker_table_and_writes_nothing(
+            self, tmp_path, monkeypatch, capsys):
+        paths = _setup_layout_dir(tmp_path, monkeypatch)  # not in sync
+
+        before_files = sorted(p.name for p in paths["layout_dir"].iterdir())
+        before_wiring = paths["wiring_csv"].read_bytes()
+
+        rc = cli.main(_argv("preview", paths))
+        out = capsys.readouterr().out
+        assert rc == 0
+
+        # header + at least one marker line (N05 is disabled in current,
+        # functional=1 in the candidate -> enabled -> '+').
+        assert "snap" in out and "part_num" in out
+        marker_lines = [ln for ln in out.splitlines() if ln.startswith("+")]
+        assert marker_lines, "expected at least one '+' marker row"
+        assert summarize_diff(diff_layouts(
+            pd.read_csv(paths["dated_csv"]), paths["cand_layout"])) in out
+        assert "use -o to get the full CSV" in out
+
+        # read-only: no new files, wiring csv untouched, no .bak
+        after_files = sorted(p.name for p in paths["layout_dir"].iterdir())
+        assert after_files == before_files
+        assert paths["wiring_csv"].read_bytes() == before_wiring
+        assert not paths["wiring_csv"].with_suffix(".csv.bak").exists()
+
+    def test_preview_output_csv_matches_apply(
+            self, tmp_path, monkeypatch, capsys):
+        paths = _setup_layout_dir(tmp_path, monkeypatch)
+
+        out_csv = tmp_path / "preview.csv"
+        rc = cli.main(_argv("preview", paths, extra=["-o", str(out_csv)]))
+        preview_out = capsys.readouterr().out
+        assert rc == 0
+        assert f"wrote {out_csv}" in preview_out
+        assert out_csv.exists()
+
+        # apply writes the same candidate as a dated CSV in the layout dir.
+        rc = cli.main(_argv("apply", paths, extra=["--yes"]))
+        capsys.readouterr()
+        assert rc == 0
+        today = dt.date.today().isoformat()
+        apply_csv = paths["layout_dir"] / f"casm_antenna_layout_{today}.csv"
+        assert apply_csv.exists()
+
+        pd.testing.assert_frame_equal(
+            pd.read_csv(out_csv), pd.read_csv(apply_csv))
