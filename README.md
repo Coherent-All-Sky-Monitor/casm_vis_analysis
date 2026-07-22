@@ -97,7 +97,7 @@ Supporting tools:
 | `casm-viz-data-span` | Survey a data directory and list observation time ranges |
 | `casm-fit-positions` | Solar fringe-stop antenna position fits |
 | `casm-validate-bf-weights` | Validate a deployed SNAP int8 weights file |
-| `casm-layout` | Antenna-layout pipeline front door: `status` / `diff` / `apply` (see below) |
+| `casm-layout` | Sync the antenna layout with CAsMan: `status` / `diff` / `apply` (see below) |
 | `casm-sync-wiring` | *Legacy* — pull CAsMan wiring and regenerate `casm_wiring.csv` |
 | `casm-build-layout` | *Legacy* — build the `AntennaMapping`-compatible consumer CSV |
 
@@ -146,23 +146,23 @@ Check what is on disk with `casm-viz-data-span` before choosing a window. An obs
 
 ## Antenna layout pipeline
 
-CAsMan (the assembly database, pulled from GitHub releases) plus the surveyed
-positions CSV (`antenna_layout_april_ovro.csv`) combine into the consumer
-layout CSV that `AntennaMapping.load` reads. CAsMan decides which antenna
-occupies which grid cell (row/col) and how each feed is wired; the surveyed
-CSV supplies the geographic coordinates. A feed is keyed by `(snap, adc)`,
-and that's the level the diff is reported at.
+The layout CSV that `AntennaMapping.load` reads is built from two sources.
+CAsMan (the assembly database) records which antenna sits in which grid cell
+and how it is wired to the SNAPs. The surveyed positions file
+(`antenna_layout_april_ovro.csv`) holds the actual coordinates of each grid
+cell. Coordinates never come from CAsMan.
 
-`casm-layout` is the primary interface — three verbs, and every invocation
-pulls the latest CAsMan snapshot from GitHub first (checksum-skip if already
-current; `--offline` skips the network and falls back to the local copy with
-a loud warning):
+Use `casm-layout` to keep the layout in sync with CAsMan:
 
 ```bash
-casm-layout status   # pull CAsMan, print a one-line diff summary (read-only)
-casm-layout diff     # pull CAsMan, print the full position + wiring-row diff (read-only)
-casm-layout apply    # show the diff, confirm, then regenerate casm_wiring.csv + the dated layout CSV
+casm-layout status   # is the current layout up to date with CAsMan?
+casm-layout diff     # show exactly what changed
+casm-layout apply    # write a new layout (asks for confirmation first)
 ```
+
+All three download the latest CAsMan database snapshot from GitHub before
+comparing (skipped when nothing changed upstream). Use `--offline` to work
+with the local copy instead.
 
 Example:
 
@@ -178,22 +178,22 @@ current layout: casm_antenna_layout_2026-07-01.csv
 run 'casm-layout diff' for details
 ```
 
-`casm-layout diff` prints that same preamble, then a full listing —
-position-level `ADDED` / `REMOVED` / `MOVED` / `ENABLED` / `DISABLED` /
-`CHANGED` sections per `(snap, adc)`, followed by a wiring-row detail
-section. `casm-layout apply` shows the diff, asks
-`Apply these changes? [y/N]` (skip with `-y`/`--yes`), then rewrites
-`casm_wiring.csv` (`.bak` backup; aborts under 5 chassis-1 antennas unless
-`--force`), rebuilds the dated `casm_antenna_layout_YYYY-MM-DD.csv`, and
-atomically repoints the `current` symlink — one command end-to-end.
+`diff` lists every added, removed, moved, enabled and disabled position
+(one entry per SNAP input), plus the underlying wiring rows.
 
-Shared flags: `--offline`, `--positions`, `--overrides`, `--snap-map`,
-`--wiring`, `--layout-dir`.
+`status` and `diff` never write anything. `apply` shows the same diff, asks
+`Apply these changes? [y/N]`, and then rewrites `casm_wiring.csv` (the old
+file is kept as `.bak`), writes a new dated
+`casm_antenna_layout_YYYY-MM-DD.csv`, and points the `current` symlink at
+it. As a safety check it refuses to write if CAsMan returns fewer than 5
+antennas; `--force` overrides. In scripts, `-y` skips the confirmation.
 
-Conflict policy is unchanged: **CAsMan wins**. Hand-edits to
-`casm_wiring.csv` do not survive `apply` — encode them as override rows in
-`casm_wiring_overrides.csv` (`add` / `disable` / `replace`, keyed by
-`(chassis, slot, adc)`).
+The default file locations can be changed with `--positions`,
+`--overrides`, `--snap-map`, `--wiring` and `--layout-dir`.
+
+CAsMan always wins: hand edits to `casm_wiring.csv` are lost on the next
+`apply`. Put manual fixes in `casm_wiring_overrides.csv` instead
+(`add` / `disable` / `replace` rows, keyed by chassis, slot and adc).
 
 See [docs/cli_reference.md](docs/cli_reference.md) for the full flag reference.
 
