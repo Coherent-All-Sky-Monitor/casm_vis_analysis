@@ -96,6 +96,7 @@ _COMMANDS = {
     "casm-validate-bf-weights": "casm_vis_analysis.cli:validate_bf_weights_main",
     "casm-build-layout": "casm_vis_analysis.layout.build:main",
     "casm-sync-wiring":  "casm_vis_analysis.layout.sync:main",
+    "casm-layout":       "casm_vis_analysis.layout.cli:main",
 }
 
 

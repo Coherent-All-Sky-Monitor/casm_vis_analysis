@@ -1,6 +1,18 @@
 # Changelog
 
-## [Unreleased] — 2026-05-16
+## [Unreleased]
+
+### Added
+- `casm-layout` CLI (`layout/cli.py`): friendlier front door over the two-stage layout pipeline, with three verbs — `status` (one-line diff summary), `diff` (full position-level + wiring-row diff), `apply` (confirm, then regenerate `casm_wiring.csv` and the dated consumer layout CSV). Every invocation pulls the latest CAsMan DB snapshot from GitHub first (checksum-skip if unchanged; `--offline` to skip). Registered as a `_COMMANDS` entry so `run("casm-layout ...")` works from notebooks, and as a `[project.scripts]` entry point in `pyproject.toml`.
+- `layout/diff.py`: position-level diff between the current layout CSV and a freshly built CAsMan candidate, keyed by `(snap, adc)`. `resolve_current_layout` locates the current layout file (`current` symlink, else newest dated CSV, else legacy filename); `diff_layouts` categorizes changes as added/removed/moved/enabled/disabled/changed; `summarize_diff` renders the one-line summary; `print_diff` renders the full section listing.
+- `layout/casman_pull.py`: `pull_casman(offline=False, force=False)` — explicit, controllable CAsMan GitHub-releases pull (replaces relying on CAsMan's inert import-time auto-sync check), with an offline/local-copy fallback and a loud stderr warning when the network pull fails.
+
+### Changed
+- `layout/sync.py`: extracted `build_wiring_candidate(snap_map, overrides)` out of `run_sync_wiring` as a standalone, file-I/O-free function (takes/returns DataFrames) so `casm-layout` can build a candidate without writing to disk; `run_sync_wiring` now calls it internally. `main()` now prints a one-line tip pointing at `casm-layout` before running.
+- `layout/build.py`: extracted `build_layout_dataframe(wiring_df, positions_df)` out of `run_build_layout` as a standalone, file-I/O-free transform (merge on plank/element, ENU projection, CAsMan annotation, padding, column selection); `run_build_layout` now calls it internally. `main()` now prints a one-line tip pointing at `casm-layout` before running.
+- `casm-sync-wiring` and `casm-build-layout` remain available unchanged for scripted/advanced use, now documented as legacy in favor of `casm-layout`.
+
+## [2026-05-16]
 
 ### Added
 - `beam_power.py`: applies calibration weights and fringe-stop, returns beam-power vs time per source

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -135,45 +136,18 @@ def _check_casman_diff(out: pd.DataFrame) -> dict:
             "csv_only": csv_only, "casman_only": casman_only}
 
 
-def run_build_layout(*, positions_csv: Path | str | None = None,
-                     wiring_csv: Path | str | None = None,
-                     output_csv: Path | str | None = None,
-                     dated: bool = True,
-                     update_symlink: bool = True,
-                     check_casman: bool = False) -> dict:
-    """Build the AntennaMapping-compatible layout CSV.
+def build_layout_dataframe(wiring_df: pd.DataFrame,
+                           positions_df: pd.DataFrame) -> pd.DataFrame:
+    """Join wiring with positions and compute the consumer layout frame.
 
-    Parameters
-    ----------
-    positions_csv, wiring_csv : path-like
-        Source CSVs. Defaults to canonical paths in
-        ``/home/casm/software/dev/antenna_layouts``.
-    output_csv : path-like, optional
-        If given, writes here regardless of ``dated``.
-    dated : bool
-        When True (default), output filename is
-        ``casm_antenna_layout_YYYY-MM-DD.csv`` under ``$CASM_LAYOUT_DIR``.
-        When False, writes to the legacy ``casm_antenna_layout_may2026.csv``.
-    update_symlink : bool
-        When True (default) and ``dated`` (or output is in
-        ``$CASM_LAYOUT_DIR``), atomically update the ``current`` symlink
-        to point at the new file.
-
-    Returns
-    -------
-    dict
-        ``{'output_csv': Path, 'n_total': int, 'n_active': int,
-        'casman_diff': dict | None, 'dataframe': pd.DataFrame,
-        'symlink_updated': bool}``
+    Pure transform: no file reads/writes. Takes the raw wiring and
+    positions frames and returns exactly the frame `run_build_layout`
+    writes out — merge on (plank, element), ENU projection, CAsMan
+    annotation, padding of unconnected (snap, adc) slots, and final
+    column selection.
     """
-    positions_csv = Path(positions_csv) if positions_csv else DEFAULT_POSITIONS_CSV
-    wiring_csv    = Path(wiring_csv)    if wiring_csv    else DEFAULT_WIRING_CSV
-    output_csv    = _resolve_output_path(output_csv, dated)
-
-    pos = pd.read_csv(positions_csv)
-    wir = pd.read_csv(wiring_csv)
-    print(f"positions: {pos.shape} ({positions_csv.name})")
-    print(f"wiring:    {wir.shape} ({wiring_csv.name})")
+    wir = wiring_df.copy()
+    pos = positions_df
     wir["plank"] = wir["plank"].replace(PLANK_ALIAS)
 
     merged = wir.merge(pos, on=["plank", "element"], how="left",
@@ -256,6 +230,51 @@ def run_build_layout(*, positions_csv: Path | str | None = None,
         "position_source", "antenna_part_num", "comments",
     ]]
 
+    return out
+
+
+def run_build_layout(*, positions_csv: Path | str | None = None,
+                     wiring_csv: Path | str | None = None,
+                     output_csv: Path | str | None = None,
+                     dated: bool = True,
+                     update_symlink: bool = True,
+                     check_casman: bool = False) -> dict:
+    """Build the AntennaMapping-compatible layout CSV.
+
+    Parameters
+    ----------
+    positions_csv, wiring_csv : path-like
+        Source CSVs. Defaults to canonical paths in
+        ``/home/casm/software/dev/antenna_layouts``.
+    output_csv : path-like, optional
+        If given, writes here regardless of ``dated``.
+    dated : bool
+        When True (default), output filename is
+        ``casm_antenna_layout_YYYY-MM-DD.csv`` under ``$CASM_LAYOUT_DIR``.
+        When False, writes to the legacy ``casm_antenna_layout_may2026.csv``.
+    update_symlink : bool
+        When True (default) and ``dated`` (or output is in
+        ``$CASM_LAYOUT_DIR``), atomically update the ``current`` symlink
+        to point at the new file.
+
+    Returns
+    -------
+    dict
+        ``{'output_csv': Path, 'n_total': int, 'n_active': int,
+        'casman_diff': dict | None, 'dataframe': pd.DataFrame,
+        'symlink_updated': bool}``
+    """
+    positions_csv = Path(positions_csv) if positions_csv else DEFAULT_POSITIONS_CSV
+    wiring_csv    = Path(wiring_csv)    if wiring_csv    else DEFAULT_WIRING_CSV
+    output_csv    = _resolve_output_path(output_csv, dated)
+
+    pos = pd.read_csv(positions_csv)
+    wir = pd.read_csv(wiring_csv)
+    print(f"positions: {pos.shape} ({positions_csv.name})")
+    print(f"wiring:    {wir.shape} ({wiring_csv.name})")
+
+    out = build_layout_dataframe(wir, pos)
+
     print(f"\nSanity: x range [{out['x'].min():.3f}, {out['x'].max():.3f}] m")
     print(f"        y range [{out['y'].min():.3f}, {out['y'].max():.3f}] m")
     print(f"        z range [{out['z'].min():.3f}, {out['z'].max():.3f}] m")
@@ -283,6 +302,8 @@ def run_build_layout(*, positions_csv: Path | str | None = None,
 
 
 def main(argv=None):
+    print("tip: 'casm-layout status|diff|apply' is the friendlier interface.",
+          file=sys.stderr)
     parser = argparse.ArgumentParser(
         description="Build the AntennaMapping-compatible layout CSV from "
                     "positions + wiring CSVs.")

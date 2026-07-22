@@ -12,7 +12,7 @@ All three primary commands (`casm-autocorr`, `casm-waterfall`, `casm-fringe-stop
 | `--obs` | str | — | Observation start timestamp `YYYY-MM-DD-HH:MM:SS`; omit to use time-range mode |
 | `--data-root` | path | `/mnt` | Root to scan for `visibilities_*` dirs when `--obs` is omitted |
 | `--format` | str or path | — | Format name (`layout_64ant`, `layout_32ant`) or path to JSON |
-| `--layout` | path | — | `AntennaMapping`-compatible CSV from `casm-build-layout` |
+| `--layout` | path | — | `AntennaMapping`-compatible CSV from `casm-layout apply` (or the legacy `casm-build-layout`) |
 | `--output-dir` | path | `./output` | Directory for saved figures and NPZ files |
 | `--time-start` | str | — | Window start `"YYYY-MM-DD HH:MM:SS"` |
 | `--time-end` | str | — | Window end `"YYYY-MM-DD HH:MM:SS"` |
@@ -190,9 +190,67 @@ Extra flags:
 | `--pass-ratio` | `5.0` | Peak/noise-floor threshold to call a beam passing (recommended: 5.0) |
 | `--output` | — | Save the validation figure to this path |
 
-## casm-sync-wiring
+## casm-layout
 
-Pull CAsMan and regenerate `casm_wiring.csv`.
+The primary interface to the antenna-layout pipeline. Wraps the two
+lower-level stages below (`casm-sync-wiring`, `casm-build-layout`) behind
+three verbs. Unlike the legacy commands, every invocation pulls the latest
+CAsMan database snapshot from GitHub releases first (checksum-skip if
+already current; falls back to the local copy with a loud warning if
+offline). Geographic coordinates come from the surveyed positions CSV;
+CAsMan decides which antenna occupies which grid cell and how it is wired.
+The diff is reported per `(snap, adc)`.
+
+```bash
+casm-layout status   # pull CAsMan, print a one-line diff summary (read-only)
+casm-layout diff     # pull CAsMan, print the full position + wiring-row diff (read-only)
+casm-layout apply    # show the diff, confirm, then rewrite casm_wiring.csv + the dated layout CSV
+```
+
+`status` prints a one-line summary, e.g.:
+
+```
+8 antenna positions differ (4 removed, 4 enabled); 3 wiring-metadata changes
+run 'casm-layout diff' for details
+```
+
+`diff` additionally lists, per `(snap, adc)`: `ADDED` / `REMOVED` / `MOVED` /
+`ENABLED` / `DISABLED` / `CHANGED` position-level sections, then a
+wiring-row detail section (added/removed/changed CAsMan rows).
+
+`apply` shows the diff, asks `Apply these changes? [y/N]` (skip with
+`-y`/`--yes`), rewrites `casm_wiring.csv` (`.bak` backup; aborts if CAsMan
+returns fewer than 5 chassis-1 P1 antennas unless `--force` is passed),
+rebuilds the dated `casm_antenna_layout_YYYY-MM-DD.csv`, and atomically
+repoints the `current` symlink at it.
+
+| Flag | Description |
+|---|---|
+| `--offline` | Skip the GitHub pull; use the local CAsMan copy (may be stale — no freshness check). |
+| `--positions` | Positions CSV (default: `antenna_layout_april_ovro.csv`) |
+| `--overrides` | Wiring overrides CSV (default: `casm_wiring_overrides.csv`) |
+| `--snap-map` | Trusted `(chassis, slot) -> (feng_id, snap_ip)` map (default: `casm_snap_map.csv`) |
+| `--wiring` | Wiring CSV (default: `casm_wiring.csv`) |
+| `--layout-dir` | Directory holding the layout CSVs + `current` symlink (default: `/home/casm/software/dev/antenna_layouts`) |
+| `-y`, `--yes` | (`apply` only) Skip the interactive confirmation prompt. |
+| `--force` | (`apply` only) Bypass the <5-antenna sanity guard. |
+
+Conflict policy: **CAsMan wins**. Hand-edits to `casm_wiring.csv` do not
+survive `apply`. Encode them as override rows in
+`casm_wiring_overrides.csv` (`add`, `disable`, or `replace`, keyed by
+`(chassis, slot, adc)`). Default overrides path:
+`/home/casm/software/dev/antenna_layouts/casm_wiring_overrides.csv`.
+
+Python API: `layout.casman_pull.pull_casman`,
+`layout.sync.build_wiring_candidate`, `layout.build.build_layout_dataframe`,
+`layout.diff.{resolve_current_layout, diff_layouts, summarize_diff}`. Also
+runnable via the in-process dispatcher: `run("casm-layout diff")`.
+
+## casm-sync-wiring (legacy)
+
+Lower-level stage behind `casm-layout`: pull CAsMan and regenerate
+`casm_wiring.csv` directly. Prints a tip pointing at `casm-layout` on every
+run. Kept for scripted/advanced use.
 
 ```bash
 casm-sync-wiring           # dry-run: show diff vs current wiring CSV
@@ -205,9 +263,12 @@ Abort condition: CAsMan returns fewer than 5 chassis-1 P1 antennas. Pass `--forc
 
 Conflict policy: **CAsMan wins**. Hand-edits to `casm_wiring.csv` do not survive `--apply`. Encode them as override rows in `casm_wiring_overrides.csv` (`add`, `disable`, or `replace`, keyed by `(chassis, slot, adc)`). Default overrides path: `/home/casm/software/dev/antenna_layouts/casm_wiring_overrides.csv`.
 
-## casm-build-layout
+## casm-build-layout (legacy)
 
-Build the `AntennaMapping`-compatible consumer CSV from `casm_wiring.csv` plus hand-measured ENU positions.
+Lower-level stage behind `casm-layout`: build the `AntennaMapping`-compatible
+consumer CSV from `casm_wiring.csv` plus hand-measured ENU positions
+directly. Prints a tip pointing at `casm-layout` on every run. Kept for
+scripted/advanced use.
 
 ```bash
 casm-build-layout                  # rebuild using current wiring CSV

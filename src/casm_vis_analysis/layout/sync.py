@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import sys
 from pathlib import Path
 
 import pandas as pd
 
 from casm_vis_analysis.layout._grid import parse_grid_code
+from casm_vis_analysis.layout.casman_pull import pull_casman
 
 DEFAULT_WIRING_CSV    = Path("/home/casm/software/dev/antenna_layouts/casm_wiring.csv")
 DEFAULT_OVERRIDES_CSV = Path("/home/casm/software/dev/antenna_layouts/casm_wiring_overrides.csv")
@@ -35,9 +37,11 @@ def _row_key(r):
     return (int(r["chassis"]), str(r["slot"]), int(r["adc"]))
 
 
-def _candidate_from_casman(*, force_pull: bool, snap_map: pd.DataFrame):
+def build_wiring_candidate(*, snap_map: pd.DataFrame,
+                           overrides: pd.DataFrame | None = None) -> pd.DataFrame:
     """Build a wiring candidate by taking antenna<->ADC chains from CAsMan,
-    but filling (snap_ip, feng_id) from the locally trusted SNAP map.
+    filling (snap_ip, feng_id) from the locally trusted SNAP map, then
+    applying `overrides` (if given) for cases CAsMan doesn't track.
 
     Reason: CAsMan's `snap_boards` table holds the *design-time* IP/feng_id
     mapping per slot, which has historically diverged from the on-floor
@@ -45,14 +49,6 @@ def _candidate_from_casman(*, force_pull: bool, snap_map: pd.DataFrame):
     """
     from casman.database.antenna_positions import get_all_antenna_positions
     from casman.antenna.chain import get_snap_ports_for_antenna
-
-    if force_pull:
-        from casman.database.github_sync import get_github_sync_manager
-        mgr = get_github_sync_manager()
-        latest = mgr.get_latest_release()
-        if latest is not None:
-            print(f"Forced pull: downloading {latest.release_name} ...")
-            mgr.download_databases(snapshot=latest, force=True)
 
     snap_lookup = {
         (int(r["chassis"]), str(r["slot"])):
@@ -96,7 +92,13 @@ def _candidate_from_casman(*, force_pull: bool, snap_map: pd.DataFrame):
         if len(skipped) > 8:
             print(f"    ... and {len(skipped) - 8} more")
 
-    return pd.DataFrame(rows, columns=WIRING_COLS)
+    cand = pd.DataFrame(rows, columns=WIRING_COLS)
+    print(f"CAsMan candidate: {len(cand)} P1 rows in mapped slots")
+
+    if overrides is not None:
+        cand = _apply_overrides(cand, overrides)
+
+    return cand[WIRING_COLS].sort_values(["feng_id", "adc"]).reset_index(drop=True)
 
 
 def _apply_overrides(candidate: pd.DataFrame,
@@ -202,17 +204,19 @@ def run_sync_wiring(*, target_csv: Path | str | None = None,
     snap_map = pd.read_csv(snap_map_csv)
     print(f"snap map: {len(snap_map)} entries ({snap_map_csv.name})")
 
-    cand = _candidate_from_casman(force_pull=force_pull, snap_map=snap_map)
-    print(f"CAsMan candidate: {len(cand)} P1 rows in mapped slots")
+    if force_pull:
+        pull_result = pull_casman(force=True)
+        if pull_result["source"] == "github" and pull_result["release_name"]:
+            print(f"Forced pull: downloading {pull_result['release_name']} ...")
 
     if overrides_csv.exists():
         overrides = pd.read_csv(overrides_csv)
         print(f"overrides: {len(overrides)} rows ({overrides_csv.name})")
-        cand = _apply_overrides(cand, overrides)
     else:
+        overrides = None
         print(f"overrides: none ({overrides_csv} not found; pure CAsMan output)")
 
-    cand = cand[WIRING_COLS].sort_values(["feng_id", "adc"]).reset_index(drop=True)
+    cand = build_wiring_candidate(snap_map=snap_map, overrides=overrides)
 
     current = (pd.read_csv(target_csv) if target_csv.exists()
                else pd.DataFrame(columns=WIRING_COLS))
@@ -245,6 +249,8 @@ def run_sync_wiring(*, target_csv: Path | str | None = None,
 
 
 def main(argv=None):
+    print("tip: 'casm-layout status|diff|apply' is the friendlier interface.",
+          file=sys.stderr)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--apply", action="store_true",
                         help="Replace casm_wiring.csv (with .bak). Default is dry-run.")

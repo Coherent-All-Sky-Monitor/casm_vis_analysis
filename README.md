@@ -97,8 +97,9 @@ Supporting tools:
 | `casm-viz-data-span` | Survey a data directory and list observation time ranges |
 | `casm-fit-positions` | Solar fringe-stop antenna position fits |
 | `casm-validate-bf-weights` | Validate a deployed SNAP int8 weights file |
-| `casm-sync-wiring` | Pull CAsMan wiring and regenerate `casm_wiring.csv` |
-| `casm-build-layout` | Build the `AntennaMapping`-compatible consumer CSV |
+| `casm-layout` | Antenna-layout pipeline front door: `status` / `diff` / `apply` (see below) |
+| `casm-sync-wiring` | *Legacy* — pull CAsMan wiring and regenerate `casm_wiring.csv` |
+| `casm-build-layout` | *Legacy* — build the `AntennaMapping`-compatible consumer CSV |
 
 All three primary CLIs share: `--data-dir`, `--obs`, `--format`, `--layout`, `--output-dir`, `--freq-order`, `--time-start`, `--time-end`, `--time-tz`, `--nfiles`, `--skip-nfiles`, `--show`, `--data-root`.
 
@@ -145,7 +146,58 @@ Check what is on disk with `casm-viz-data-span` before choosing a window. An obs
 
 ## Antenna layout pipeline
 
-Two-stage: CAsMan → `casm_wiring.csv` → consumer layout CSV.
+CAsMan (the assembly database, pulled from GitHub releases) plus the surveyed
+positions CSV (`antenna_layout_april_ovro.csv`) combine into the consumer
+layout CSV that `AntennaMapping.load` reads. CAsMan decides which antenna
+occupies which grid cell (row/col) and how each feed is wired; the surveyed
+CSV supplies the geographic coordinates. A feed is keyed by `(snap, adc)`,
+and that's the level the diff is reported at.
+
+`casm-layout` is the primary interface — three verbs, and unlike the legacy
+commands below, every invocation pulls the latest CAsMan snapshot from GitHub
+first (checksum-skip if already current; `--offline` skips the network and
+falls back to the local copy with a loud warning):
+
+```bash
+casm-layout status   # pull CAsMan, print a one-line diff summary (read-only)
+casm-layout diff     # pull CAsMan, print the full position + wiring-row diff (read-only)
+casm-layout apply    # show the diff, confirm, then regenerate casm_wiring.csv + the dated layout CSV
+```
+
+Example:
+
+```
+$ casm-layout status
+CAsMan release: database-snapshot-20260720-191117 (already up to date)
+snap map: 4 entries (casm_snap_map.csv)
+overrides: 3 rows (casm_wiring_overrides.csv)
+CAsMan candidate: 17 P1 rows in mapped slots
+current layout: casm_antenna_layout_2026-07-01.csv
+
+8 antenna positions differ (4 removed, 4 enabled); 3 wiring-metadata changes
+run 'casm-layout diff' for details
+```
+
+`casm-layout diff` prints that same preamble, then a full listing —
+position-level `ADDED` / `REMOVED` / `MOVED` / `ENABLED` / `DISABLED` /
+`CHANGED` sections per `(snap, adc)`, followed by a wiring-row detail
+section. `casm-layout apply` shows the diff, asks
+`Apply these changes? [y/N]` (skip with `-y`/`--yes`), then rewrites
+`casm_wiring.csv` (`.bak` backup; aborts under 5 chassis-1 antennas unless
+`--force`), rebuilds the dated `casm_antenna_layout_YYYY-MM-DD.csv`, and
+atomically repoints the `current` symlink — one command end-to-end.
+
+Shared flags: `--offline`, `--positions`, `--overrides`, `--snap-map`,
+`--wiring`, `--layout-dir`.
+
+Conflict policy is unchanged: **CAsMan wins**. Hand-edits to
+`casm_wiring.csv` do not survive `apply` — encode them as override rows in
+`casm_wiring_overrides.csv` (`add` / `disable` / `replace`, keyed by
+`(chassis, slot, adc)`).
+
+Legacy: the two lower-level commands still work standalone (each now prints
+a one-line tip pointing at `casm-layout`) and remain available for
+scripted/advanced use:
 
 ```bash
 casm-sync-wiring                   # dry-run: show diff vs current wiring CSV
@@ -153,7 +205,7 @@ casm-sync-wiring --apply           # regenerate casm_wiring.csv (backs up .bak)
 casm-build-layout --check-casman   # rebuild consumer CSV + diff against CAsMan
 ```
 
-Override rows in `casm_wiring_overrides.csv` survive `--apply`; hand-edits to `casm_wiring.csv` do not. See [docs/cli_reference.md](docs/cli_reference.md) for the full sync/build flags.
+See [docs/cli_reference.md](docs/cli_reference.md) for the full flag reference.
 
 ## Testing
 
