@@ -153,10 +153,10 @@ occupies which grid cell (row/col) and how each feed is wired; the surveyed
 CSV supplies the geographic coordinates. A feed is keyed by `(snap, adc)`,
 and that's the level the diff is reported at.
 
-`casm-layout` is the primary interface — three verbs, and unlike the legacy
-commands below, every invocation pulls the latest CAsMan snapshot from GitHub
-first (checksum-skip if already current; `--offline` skips the network and
-falls back to the local copy with a loud warning):
+`casm-layout` is the primary interface — three verbs, and every invocation
+pulls the latest CAsMan snapshot from GitHub first (checksum-skip if already
+current; `--offline` skips the network and falls back to the local copy with
+a loud warning):
 
 ```bash
 casm-layout status   # pull CAsMan, print a one-line diff summary (read-only)
@@ -194,16 +194,6 @@ Conflict policy is unchanged: **CAsMan wins**. Hand-edits to
 `casm_wiring.csv` do not survive `apply` — encode them as override rows in
 `casm_wiring_overrides.csv` (`add` / `disable` / `replace`, keyed by
 `(chassis, slot, adc)`).
-
-Legacy: the two lower-level commands still work standalone (each now prints
-a one-line tip pointing at `casm-layout`) and remain available for
-scripted/advanced use:
-
-```bash
-casm-sync-wiring                   # dry-run: show diff vs current wiring CSV
-casm-sync-wiring --apply           # regenerate casm_wiring.csv (backs up .bak)
-casm-build-layout --check-casman   # rebuild consumer CSV + diff against CAsMan
-```
 
 See [docs/cli_reference.md](docs/cli_reference.md) for the full flag reference.
 
