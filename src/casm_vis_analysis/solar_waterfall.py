@@ -184,7 +184,7 @@ def plot_waterfall(path, out_path, beam, role=None, tfac=DEFAULT_TFAC,
     fig, axes = plt.subplots(3, 1, figsize=(14, 12), sharex=False,
                              gridspec_kw={"height_ratios": [3, 1, 1.8]})
     ax = axes[0]
-    ax.imshow(data_norm.T, aspect="auto", origin="lower",
+    ax.imshow(data_norm.T, aspect="auto", origin="upper",
               extent=[times_num[0], times_num[-1], freqs[-1], freqs[0]],
               cmap="viridis",
               vmin=np.percentile(data_norm, 5),
