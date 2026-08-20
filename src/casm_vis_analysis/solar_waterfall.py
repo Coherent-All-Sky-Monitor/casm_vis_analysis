@@ -42,7 +42,7 @@ import matplotlib.dates as mdates
 DEFAULT_TFAC = 954          # ~1.0 s bins at the 1.0486 ms sample time
 DEFAULT_CHANS = (505, 1200, 1500, 2000)
 DEFAULT_TZ = "America/Los_Angeles"
-DEFAULT_CMAP = "viridis"
+DEFAULT_CMAP = "inferno"
 MJD_UNIX_EPOCH = 40587.0    # MJD of 1970-01-01
 READ_BLOCK_BYTES = 2e9
 
@@ -249,7 +249,7 @@ def main(argv=None):
                         help=f"Timezone for the time axis (default: {DEFAULT_TZ})")
     parser.add_argument("--cmap", default=DEFAULT_CMAP,
                         help=f"Matplotlib colormap for the waterfall panel "
-                             f"(default: {DEFAULT_CMAP}; try inferno, magma, cividis)")
+                             f"(default: {DEFAULT_CMAP}; try viridis, magma, cividis)")
     parser.add_argument("--out-name", default=None,
                         help="Output PNG basename (default: <stem>_waterfall_localtime.png)")
     args = parser.parse_args(argv)
