@@ -42,6 +42,7 @@ import matplotlib.dates as mdates
 DEFAULT_TFAC = 954          # ~1.0 s bins at the 1.0486 ms sample time
 DEFAULT_CHANS = (505, 1200, 1500, 2000)
 DEFAULT_TZ = "America/Los_Angeles"
+DEFAULT_CMAP = "viridis"
 MJD_UNIX_EPOCH = 40587.0    # MJD of 1970-01-01
 READ_BLOCK_BYTES = 2e9
 
@@ -164,7 +165,7 @@ def beam_description(beam, role=None):
 
 
 def plot_waterfall(path, out_path, beam, role=None, tfac=DEFAULT_TFAC,
-                   chans=DEFAULT_CHANS, tz=DEFAULT_TZ):
+                   chans=DEFAULT_CHANS, tz=DEFAULT_TZ, cmap=DEFAULT_CMAP):
     """Write the 3-panel waterfall PNG for one filterbank. Returns out_path."""
     zone = ZoneInfo(tz)
     spec, tsec, freqs, header = downsample(path, tfac)
@@ -186,7 +187,7 @@ def plot_waterfall(path, out_path, beam, role=None, tfac=DEFAULT_TFAC,
     ax = axes[0]
     ax.imshow(data_norm.T, aspect="auto", origin="upper",
               extent=[times_num[0], times_num[-1], freqs[-1], freqs[0]],
-              cmap="viridis",
+              cmap=cmap,
               vmin=np.percentile(data_norm, 5),
               vmax=np.percentile(data_norm, 95))
     ax.set_ylabel("Frequency (MHz)")
@@ -246,6 +247,9 @@ def main(argv=None):
                              f"(default: {','.join(str(c) for c in DEFAULT_CHANS)})")
     parser.add_argument("--tz", default=DEFAULT_TZ,
                         help=f"Timezone for the time axis (default: {DEFAULT_TZ})")
+    parser.add_argument("--cmap", default=DEFAULT_CMAP,
+                        help=f"Matplotlib colormap for the waterfall panel "
+                             f"(default: {DEFAULT_CMAP}; try inferno, magma, cividis)")
     parser.add_argument("--out-name", default=None,
                         help="Output PNG basename (default: <stem>_waterfall_localtime.png)")
     args = parser.parse_args(argv)
@@ -259,7 +263,7 @@ def main(argv=None):
     out_path = os.path.join(args.out_dir, out_name)
 
     plot_waterfall(args.fil, out_path, beam, role=args.role, tfac=args.tfac,
-                   chans=args.chans, tz=args.tz)
+                   chans=args.chans, tz=args.tz, cmap=args.cmap)
     print(out_path)
     return 0
 
