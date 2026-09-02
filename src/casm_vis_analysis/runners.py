@@ -58,7 +58,7 @@ def _snap_only_groups(snaps, fmt):
     return snap_groups
 
 
-def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None,
+def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None, inputs=None,
               freq_order="descending", time_start=None, time_end=None,
               time_tz="UTC", nfiles=None, skip_nfiles=0, data_root=None,
               freq_range_mhz=None):
@@ -72,7 +72,9 @@ def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None,
       if ``data_dir`` is None).
 
     ``freq_range_mhz=(lo, hi)`` triggers ``np.memmap`` + on-disk channel
-    skip in casm_io's reader (real bytes-not-read).
+    skip in casm_io's reader (real bytes-not-read). ``inputs=[...]`` does the
+    same for the baseline axis: casm_io keeps only the upper triangle of those
+    correlator inputs, memmapped, so the other baselines are never read.
     """
     if obs is None:
         from casm_io.correlator import read_visibilities
@@ -84,14 +86,14 @@ def _read_vis(data_dir, obs, fmt, *, ref=None, targets=None,
         return read_visibilities(
             time_start=time_start, time_end=time_end, time_tz=time_tz,
             data_root=data_root or "/mnt", data_dir=data_dir,
-            fmt=fmt, ref=ref, targets=targets, freq_order=freq_order,
-            freq_range_mhz=freq_range_mhz,
+            fmt=fmt, ref=ref, targets=targets, inputs=inputs,
+            freq_order=freq_order, freq_range_mhz=freq_range_mhz,
         )
 
     from casm_io.correlator import VisibilityReader
     reader = VisibilityReader(data_dir, obs, fmt)
     return reader.read(
-        ref=ref, targets=targets,
+        ref=ref, targets=targets, inputs=inputs,
         freq_order=freq_order,
         freq_range_mhz=freq_range_mhz,
         time_start=time_start, time_end=time_end, time_tz=time_tz,
@@ -181,22 +183,23 @@ def run_waterfall(*, data_dir=None, obs=None, format, layout=None,
                   include_inactive=False):
     """Upper-triangle waterfall matrix. Mirrors `casm-waterfall`.
 
+    Only the baselines among the plotted inputs are read: the input set is
+    derived from the layout (or from ``snaps``) first and handed to casm_io as
+    ``inputs=``, so the reader memmaps that sub-triangle instead of loading
+    every baseline. ``vis`` in the returned dict is therefore the sub-triangle
+    of ``inputs``, indexable with ``triu_flat_index(len(inputs), rank_i,
+    rank_j)``; ``nsig`` and ``inputs`` in the returned dict describe it.
+
     Returns
     -------
     dict
-        Keys: ``vis``, ``freq_mhz``, ``time_unix``, ``figures``.
+        Keys: ``vis``, ``freq_mhz``, ``time_unix``, ``figures``, ``inputs``,
+        ``nsig``.
     """
     from casm_io.correlator import load_format
     from casm_vis_analysis.plotting.waterfall import plot_waterfall
 
     fmt = load_format(format)
-    data = _read_vis(data_dir, obs, fmt,
-                     freq_order=freq_order,
-                     time_start=time_start, time_end=time_end, time_tz=time_tz,
-                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root,
-                     freq_range_mhz=freq_range_mhz)
-    vis = data["vis"]; freq_mhz = data["freq_mhz"]; time_unix = data["time_unix"]
-    print(f"Loaded vis: {vis.shape}")
 
     if layout is not None:
         ant = _load_mapping(layout)
@@ -224,12 +227,35 @@ def run_waterfall(*, data_dir=None, obs=None, format, layout=None,
                 snap_adc_labels.append(sac)
 
     print(f"Plotting {len(packet_indices)} inputs")
+
+    # Read only the baselines the plot uses: all pairs among these inputs,
+    # autocorrelations included (plot_waterfall draws the diagonal).
+    sel_inputs = sorted(set(packet_indices))
+    rank = {p: r for r, p in enumerate(sel_inputs)}
+
+    data = _read_vis(data_dir, obs, fmt,
+                     inputs=sel_inputs,
+                     freq_order=freq_order,
+                     time_start=time_start, time_end=time_end, time_tz=time_tz,
+                     nfiles=nfiles, skip_nfiles=skip_nfiles, data_root=data_root,
+                     freq_range_mhz=freq_range_mhz)
+    vis = data["vis"]; freq_mhz = data["freq_mhz"]; time_unix = data["time_unix"]
+    print(f"Loaded vis: {vis.shape} "
+          f"({len(sel_inputs)} of {fmt.nsig} inputs)")
+
+    # vis now holds the upper triangle of sel_inputs, so plot_waterfall gets
+    # the reduced nsig and the rank of each input within the selection. Rank
+    # is monotonic in the packet index, so its i>j conjugation test is
+    # unchanged.
+    nsig_sub = len(sel_inputs)
+    packet_ranks = [rank[p] for p in packet_indices]
+
     dirs = _maybe_make_dirs(output_dir, _obs_label(obs, time_start, time_end),
                             needed=not show)
 
     figures = plot_waterfall(
-        vis, freq_mhz, time_unix, fmt.nsig,
-        packet_indices=packet_indices,
+        vis, freq_mhz, time_unix, nsig_sub,
+        packet_indices=packet_ranks,
         antenna_labels=antenna_labels,
         snap_adc_labels=snap_adc_labels,
         split_max=split_max,
@@ -245,7 +271,7 @@ def run_waterfall(*, data_dir=None, obs=None, format, layout=None,
         print(f"Saved waterfalls to: {dirs['waterfall']}")
 
     return {"vis": vis, "freq_mhz": freq_mhz, "time_unix": time_unix,
-            "figures": figures}
+            "figures": figures, "inputs": sel_inputs, "nsig": nsig_sub}
 
 
 def run_fringe_stop(*, data_dir=None, obs=None, format, layout, ref_ant,
