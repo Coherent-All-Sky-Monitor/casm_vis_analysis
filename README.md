@@ -121,6 +121,16 @@ casm-fringe-stop \
 
 See [docs/cli_reference.md](docs/cli_reference.md) for every flag and all commands.
 
+## casm-waterfall input subsetting
+
+`run_waterfall` (and therefore `casm-waterfall`) derives the input set from
+the layout (or `snaps`) before reading anything, and passes it to casm_io as
+`inputs=`. casm_io then memmaps only the upper-triangle baselines among those
+inputs, instead of reading every baseline. The output plots are unchanged.
+For a day of data this drops memory use from roughly 130 GB to a few GB.
+See `tests/test_waterfall_subset.py` for the baseline-selection and
+conjugation checks.
+
 ## Data selection
 
 Two modes, pick one:
