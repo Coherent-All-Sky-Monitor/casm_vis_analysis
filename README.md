@@ -144,6 +144,35 @@ Check what is on disk with `casm-viz-data-span` before choosing a window. An obs
 
 ## Detailed documentation
 
+### Prepared solar-style dynamic spectra
+
+`casm_vis_analysis.solar_waterfall.plot_dynamic_spectrum` accepts an already
+selected real, nonnegative `(time, frequency)` array, Unix bin-centre times,
+and monotonic channel centres in MHz. It renders the existing three-panel
+solar style: channel-mean-normalized waterfall, original mean spectrum and
+selected-channel light curves. NaNs and missing integrations remain gaps;
+zero-mean channels are masked. Supply `integration_s` for the actual bin width.
+No data are read, fringe-stopped, calibrated or identified as solar by this call.
+Use `quantity="Correlated amplitude"` for visibility magnitudes, with the
+baseline, cadence and processing in the title/caption. These are not beam power
+or flux density. The existing `plot_waterfall` filterbank entry point delegates
+to the same renderer after its existing time averaging.
+
+```python
+from casm_vis_analysis.solar_waterfall import plot_dynamic_spectrum
+
+# Prepared, bounded samples; obtain axes and metadata from the owning reader.
+fig = plot_dynamic_spectrum(
+    amplitude, time_unix, freq_mhz,
+    title="CASM correlated amplitude: selected baseline",
+    quantity="Correlated amplitude", integration_s=integration_seconds,
+)
+```
+
+With `out_path=None` the function returns an open Matplotlib Figure. Supplying
+an output path saves and closes it, returning that path. The normalization
+depends on the selected interval; changing that interval changes the reference.
+
 - [docs/sources_and_transits.md](docs/sources_and_transits.md) — source catalog, ENU direction vectors, transit window detection
 - [docs/fringe_stop.md](docs/fringe_stop.md) — sign convention, geometric delay, `FringeStoppedData`, `coherence_metric`, `auto_detect_sign`, `plot_phase_vs_freq`
 - [docs/rfi.md](docs/rfi.md) — `RFIMask`, `apply_rfi_mask`, mask propagation through the pipeline

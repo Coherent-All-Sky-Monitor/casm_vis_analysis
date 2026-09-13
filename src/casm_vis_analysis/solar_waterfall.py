@@ -167,29 +167,91 @@ def beam_description(beam, role=None):
 def plot_waterfall(path, out_path, beam, role=None, tfac=DEFAULT_TFAC,
                    chans=DEFAULT_CHANS, tz=DEFAULT_TZ, cmap=DEFAULT_CMAP):
     """Write the 3-panel waterfall PNG for one filterbank. Returns out_path."""
-    zone = ZoneInfo(tz)
     spec, tsec, freqs, header = downsample(path, tfac)
-    bandpass = spec.mean(axis=0)
-    data_norm = spec / bandpass[None, :]
-    times_local = local_times(header, tsec, zone)
-    times_num = mdates.date2num(times_local)
+    time_unix = (float(header["tstart"]) - MJD_UNIX_EPOCH) * 86400 + tsec
+    return plot_dynamic_spectrum(
+        spec, time_unix, freqs, out_path,
+        title=f"CASM Dynamic Spectrum: {beam_description(beam, role)}",
+        chans=chans, tz=tz, cmap=cmap,
+        integration_s=tfac * float(header["tsamp"]),
+    )
 
+
+def plot_dynamic_spectrum(spec, time_unix, freq_mhz, out_path=None, *,
+                          title="CASM Dynamic Spectrum", chans=None,
+                          tz=DEFAULT_TZ, cmap=DEFAULT_CMAP, quantity="Power",
+                          integration_s=None):
+    """Render prepared real, nonnegative samples using the solar plot style.
+
+    ``spec`` has shape (time, frequency); times are increasing Unix seconds,
+    frequencies are monotonic channel centres in MHz in either order. NaN
+    samples are gaps. Each channel is divided by its finite interval mean;
+    zero-mean channels stay masked. No reading, calibration or source isolation
+    is performed. ``quantity`` names the supplied measurement, not its origin.
+
+    ``integration_s`` gives a bin width (seconds) and preserves missing-time
+    gaps; otherwise the median spacing is used. Times are bin centres. The
+    caller must establish the timestamp convention for its data. With no
+    output path return an open Figure; otherwise save, close and return the path.
+    """
+    spec = np.asarray(spec)
+    times = np.asarray(time_unix, dtype=float)
+    freqs = np.asarray(freq_mhz, dtype=float)
+    if (spec.ndim != 2 or times.ndim != 1 or freqs.ndim != 1
+            or spec.shape != (times.size, freqs.size)
+            or times.size < 1 or freqs.size < 2):
+        raise ValueError("expected spec[time, frequency], >=1 time and >=2 channels")
+    if np.iscomplexobj(spec) or np.any(spec[np.isfinite(spec)] < 0):
+        raise ValueError("spec must be real and nonnegative; choose an explicit estimator")
+    if (not np.all(np.isfinite(times)) or not np.all(np.isfinite(freqs))
+            or np.any(np.diff(times) <= 0)
+            or not (np.all(np.diff(freqs) > 0) or np.all(np.diff(freqs) < 0))):
+        raise ValueError("times must increase and frequencies must be monotonic and finite")
+    width = float(integration_s) if integration_s is not None else (
+        float(np.median(np.diff(times))) if times.size > 1 else 1.0)
+    if not np.isfinite(width) or width <= 0:
+        raise ValueError("integration_s must be positive and finite")
+    valid = np.isfinite(spec)
+    values = np.where(valid, spec, 0).astype(float)
+    count = valid.sum(axis=0)
+    bandpass = np.divide(values.sum(axis=0), count,
+                         out=np.full(freqs.size, np.nan), where=count > 0)
+    data_norm = np.divide(values, bandpass[None, :],
+                          out=np.full(spec.shape, np.nan),
+                          where=valid & (bandpass[None, :] > 0))
+    finite = data_norm[np.isfinite(data_norm)]
+    if not finite.size:
+        raise ValueError("no finite positive channel means to normalize")
+    zone = ZoneInfo(tz)
+    times_local = [datetime.fromtimestamp(t, timezone.utc).astimezone(zone) for t in times]
+    times_num = mdates.date2num(times_local)
+    chans = list(chans) if chans is not None else list(np.unique(
+        np.linspace(0, freqs.size - 1, min(4, freqs.size), dtype=int)))
     bad = [i for i in chans if not 0 <= i < freqs.size]
     if bad:
         raise ValueError(f"channel indices {bad} outside 0..{freqs.size - 1}")
 
     date_label = times_local[0].strftime("%B %-d %Y")
-    title = (f"CASM Dynamic Spectrum: {beam_description(beam, role)} "
-             f"({date_label})")
+    title = f"{title} ({date_label})"
 
     fig, axes = plt.subplots(3, 1, figsize=(14, 12), sharex=False,
                              gridspec_kw={"height_ratios": [3, 1, 1.8]})
     ax = axes[0]
-    ax.imshow(data_norm.T, aspect="auto", origin="upper",
-              extent=[times_num[0], times_num[-1], freqs[-1], freqs[0]],
-              cmap=cmap,
-              vmin=np.percentile(data_norm, 5),
-              vmax=np.percentile(data_norm, 95))
+    # Duplicate each bin's edges, inserting masked columns between bins. This
+    # preserves actual gaps instead of stretching an image across missing data.
+    half = min(width, float(np.min(np.diff(times))) if times.size > 1 else width) / 172800
+    time_edges = np.column_stack((times_num - half, times_num + half)).ravel()
+    displayed = np.full((2 * times.size - 1, freqs.size), np.nan)
+    displayed[::2] = data_norm
+    freq_edges = np.r_[freqs[0] - (freqs[1] - freqs[0]) / 2,
+                       (freqs[:-1] + freqs[1:]) / 2,
+                       freqs[-1] + (freqs[-1] - freqs[-2]) / 2]
+    mesh = ax.pcolormesh(time_edges, freq_edges, np.ma.masked_invalid(displayed.T),
+                        shading="flat", cmap=cmap,
+                        vmin=np.percentile(finite, 5), vmax=np.percentile(finite, 95),
+                        rasterized=True)
+    ax.set_ylim(min(freq_edges), max(freq_edges))
+    fig.colorbar(mesh, ax=ax, label=f"{quantity} / channel mean", pad=0.02)
     ax.set_ylabel("Frequency (MHz)")
     ax.set_title(title, fontweight="bold")
     ax.xaxis_date()
@@ -198,16 +260,23 @@ def plot_waterfall(path, out_path, beam, role=None, tfac=DEFAULT_TFAC,
     ax = axes[1]
     ax.plot(freqs, bandpass)
     ax.set_xlabel("Frequency (MHz)")
-    ax.set_ylabel("Power")
+    ax.set_ylabel(quantity)
     ax.set_yscale("log")
 
     ax = axes[2]
+    gaps = np.flatnonzero(np.diff(times) > 1.5 * width) + 1
+    curve_times = np.insert(times_num, gaps,
+                            (times_num[gaps - 1] + times_num[gaps]) / 2)
     for i in chans:
-        ax.plot(times_local, data_norm[:, i], lw=0.8,
+        ax.plot(curve_times, np.insert(data_norm[:, i], gaps, np.nan), lw=0.8,
                 label=f"ch {i} ({freqs[i]:.1f} MHz)")
-    ax.plot(times_local, data_norm.mean(axis=1), color="k", lw=2, label="Mean")
-    ax.set_ylabel("Normalized Power")
-    ax.set_xlabel("Local Time (OVRO)")
+    counts = np.isfinite(data_norm).sum(axis=1)
+    mean = np.divide(np.nansum(data_norm, axis=1), counts,
+                     out=np.full(times.size, np.nan), where=counts > 0)
+    ax.plot(curve_times, np.insert(mean, gaps, np.nan), color="k", lw=2, label="Mean")
+    ax.xaxis_date()
+    ax.set_ylabel(f"Normalized {quantity.lower()}")
+    ax.set_xlabel(f"Time ({tz})")
     # Legend above the panel so it never covers the light curves.
     ax.legend(ncol=5, fontsize=9, loc="lower center",
               bbox_to_anchor=(0.5, 1.01), frameon=False)
@@ -216,9 +285,11 @@ def plot_waterfall(path, out_path, beam, role=None, tfac=DEFAULT_TFAC,
     plt.setp(axes[0].get_xticklabels(), rotation=30, ha="right")
     plt.setp(axes[2].get_xticklabels(), rotation=30, ha="right")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    return out_path
+    if out_path is not None:
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+        return out_path
+    return fig
 
 
 def _parse_chans(arg):
