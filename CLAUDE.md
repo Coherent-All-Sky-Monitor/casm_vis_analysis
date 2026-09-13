@@ -1,5 +1,14 @@
 # casm_vis_analysis
 
+## Documentation maintenance
+
+Before changing code, read
+`/home/casm/software/dev/casm-software-docs/docs/maintaining-docs.md`.
+Review and update this repository's documentation and the affected central
+CASM documentation in the same task. Follow that policy for snapshot refresh,
+checks and paired source/docs commits. State the reason when a code change has
+no documentation impact; report unfinished documentation work explicitly.
+
 Fringe-stopping, delay correction, and diagnostic plotting for CASM correlator visibilities.
 
 ## Project Rules
