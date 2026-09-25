@@ -51,6 +51,7 @@ def beam_power_vs_time(
     cal_weights=None,
     freq_band_mhz: tuple | None = None,
     sign: int = -1,
+    return_spectrum: bool = False,
 ) -> dict:
     """Coherent beam power per time sample for each source-tracking pointing.
 
@@ -87,6 +88,9 @@ def beam_power_vs_time(
         so the cross-baseline sum adds coherently for the source
         direction. Matches :func:`fringe_stop`'s default. Use ``+1`` to
         explicitly look for the source's anti-phase image.
+    return_spectrum : bool, default False
+        Also return ``spectrum`` (source -> time by selected frequency) and
+        ``freq_mhz``. Uses exactly the same cross-only sum as ``power``.
 
     Returns
     -------
@@ -240,6 +244,7 @@ def beam_power_vs_time(
     # exp(sign * 2*pi*i * f * tau_ij(t)) where tau_ij(t) = b_ij . s_hat(t) / c ---
     freq_hz = freq_mhz * 1e6                           # (F_used,)
     out_power: dict[str, np.ndarray] = {}
+    out_spectrum: dict[str, np.ndarray] = {}
     out_alt: dict[str, np.ndarray] = {}
     out_az:  dict[str, np.ndarray] = {}
 
@@ -271,6 +276,8 @@ def beam_power_vs_time(
         p_cross = 2.0 * np.real(coh)                   # (T, F_used)
         # Average over freq in band (only good channels by construction).
         out_power[label] = np.mean(p_cross, axis=1)    # (T,)
+        if return_spectrum:
+            out_spectrum[label] = p_cross
         out_alt[label] = alt_deg
         out_az[label] = az_deg
 
@@ -281,6 +288,7 @@ def beam_power_vs_time(
         "az_deg": out_az,
         "freq_band_used_mhz": (float(freq_mhz.min()), float(freq_mhz.max())),
         "n_chan_used": int(F_used),
+        **({"spectrum": out_spectrum, "freq_mhz": freq_mhz} if return_spectrum else {}),
     }
 
 
