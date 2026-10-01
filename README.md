@@ -42,6 +42,14 @@ fs = fringe_stop(data, ant, ref_ant=10, source="sun", sign=-1)
 
 ### Offline calibration review
 
+The array-style inspector uses `casm_vis_analysis.calibration_inspection` for
+saved raw/geometric/fringe-stopped/SVD-corrected baseline views, antenna weight
+and residual panels, four amplitude experiments, and cross-day validation.
+See [saved calibration diagnostics](docs/calibration_inspection.md) for formulas,
+mask conventions, preview averaging and interpretation limits. The older
+straight-line delay helpers remain available for notebooks, but are not the
+current monitor inspector's correction stage.
+
 `beam_power_vs_time(..., return_spectrum=True)` additionally returns
 `spectrum[source]` with shape `(time, selected_frequency)` and `freq_mhz`.
 Its existing broadband `power` is unchanged and is the mean of that same
