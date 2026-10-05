@@ -27,6 +27,49 @@ def test_source_voltage_response_from_crosses_not_autos():
     assert np.isnan(inspect.source_response(cross[:1], pairs[:1], 2)).all()
 
 
+def test_history_figure_uses_short_day_legend_and_separate_residuals(tmp_path):
+    freq = np.linspace(480, 390, 128)
+    days = ['2026-10-02', '2026-10-03', '2026-10-04']
+    payload = {}
+    for day in days:
+        payload[f'{day}_measured'] = np.exp(1j*np.linspace(-9, 9, len(freq)))
+        payload[f'{day}_candidate_residual'] = np.full(len(freq), .1)
+        payload[f'{day}_reference_residual'] = np.full(len(freq), .2)
+        payload[f'{day}_with subtraction_residual'] = np.full(len(freq), 2.)
+    fig = inspect.history_figure(freq, payload, days, 'N1E1', 'N2E1',
+        candidate_label='Without static subtraction', reference_weights_label='Current deployed weights')
+    assert len(fig.axes) == 3
+    assert [len(ax.lines) for ax in fig.axes] == [3, 4, 4]
+    legend = fig.axes[0].get_legend()
+    assert [t.get_text() for t in legend.get_texts()] == days
+    assert all(handle.get_markersize() >= 8 for handle in legend.legend_handles)
+    assert fig.axes[1].get_title() == 'Without static subtraction'
+    assert fig.axes[2].get_title() == 'Current deployed weights'
+    np.testing.assert_array_equal(fig.axes[1].lines[0].get_ydata(), payload[f'{days[0]}_candidate_residual'])
+    fig.savefig(tmp_path/'history.png')
+
+
+def test_render_history_preserves_phase_arrays_and_common_mask(tmp_path, monkeypatch):
+    from importlib import import_module
+    fringe_stop = import_module('casm_vis_analysis.fringe_stop')
+    freq = np.array([480., 450., 400.])
+    cal = SimpleNamespace(ant_ids=[9, 10], frequencies_hz=freq*1e6, flags=[True, False, True],
+                          weights=np.exp(1j*np.array([[.2, .2, .2], [.7, .7, .7]])))
+    mapping = SimpleNamespace(format_antenna=lambda a: f'Ant {a}')
+    def stopped(data, *args, **kwargs):
+        assert data['freq_mask'].tolist() == [False, True, False]
+        return dict(vis_stopped=np.ones((2, 3, 1), complex)*np.exp(.5j),
+                    time_mask=np.array([True, True]), target_aids=[10])
+    monkeypatch.setattr(fringe_stop, 'fringe_stop', stopped)
+    result = inspect.render_history([('2026-10-04', {'freq_mhz':freq}, mapping)],
+        {'candidate':cal, 'reference':cal}, 9, tmp_path,
+        labels={'candidate_label':'Without static subtraction', 'reference_weights_label':'Current deployed weights'})
+    assert result['baselines'] == 1
+    with np.load(tmp_path/'history-9-10.npz') as data:
+        np.testing.assert_allclose(data['2026-10-04_candidate_residual'][[0, 2]], 0, atol=1e-15)
+        assert np.isnan(data['2026-10-04_candidate_residual'][1])
+
+
 def test_preview_all_samples_contribute_and_complex_mean():
     values = np.arange(35.).reshape(5, 7).astype(complex)
     values[1, 2] = np.nan

@@ -209,13 +209,65 @@ def save_inspection(data, mapping, cal, out_dir, *, source='sun', background=Non
     return meta
 
 
-def render_history(datasets, calibrations, reference, out_dir):
+def history_figure(freq, payload, days, reference_label, target_label, *,
+                   candidate_label='Selected solution', reference_weights_label='Reference weights'):
+    """Draw saved cross-day arrays with date-only legends and separate residuals.
+
+    Only candidate/reference residuals are displayed. Older payloads may also
+    contain alternate-subtraction curves; those remain in the saved data.
+    """
+    from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import MaxNLocator
+
+    fig = Figure(figsize=(14, 8), layout='constrained', facecolor='white')
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.15, 1])
+    measured = fig.add_subplot(grid[0, :])
+    selected = fig.add_subplot(grid[1, 0])
+    deployed = fig.add_subplot(grid[1, 1], sharey=selected)
+    colors = ['#2459a6', '#cc7528', '#207c5b']
+    handles = []
+    for i, day in enumerate(days):
+        color = colors[i % len(colors)]
+        handles.append(Line2D([], [], color=color, marker='o', markersize=8,
+                              linestyle='none', label=day))
+        for axis, key, phase in ((measured, f'{day}_measured', True),
+                                 (selected, f'{day}_candidate_residual', False),
+                                 (deployed, f'{day}_reference_residual', False)):
+            if key in payload:
+                values = np.angle(payload[key]) if phase else payload[key]
+                axis.plot(freq, values, '.', ms=2.1, color=color, alpha=.85)
+    measured.legend(handles=handles, loc='upper center', bbox_to_anchor=(.5, 1.17),
+                    ncol=3, fontsize=12, frameon=False, handletextpad=.4, columnspacing=2)
+    for axis in (measured, selected, deployed):
+        axis.set_facecolor('white')
+        axis.set_ylim(-np.pi, np.pi)
+        axis.set_yticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi], ['−π', '−π/2', '0', 'π/2', 'π'])
+        axis.set_xlim(float(np.min(freq)), float(np.max(freq)))
+        axis.xaxis.set_major_locator(MaxNLocator(10 if axis is measured else 6))
+        axis.tick_params(labelsize=11)
+        axis.grid(alpha=.18)
+        axis.spines[['top', 'right']].set_visible(False)
+        axis.set_xlabel('Frequency (MHz)', fontsize=12)
+    measured.set_ylabel('Fringe-stopped phase (rad)', fontsize=12)
+    for axis, label in ((selected, candidate_label), (deployed, reference_weights_label)):
+        axis.set_title(label, fontsize=13, pad=12)
+        axis.set_ylabel('Residual phase (rad)', fontsize=12)
+        axis.axhline(0, color='#596775', lw=.8)
+    if not any(f'{day}_reference_residual' in payload for day in days):
+        deployed.text(.5, .5, 'Comparison unavailable', transform=deployed.transAxes,
+                      ha='center', va='center', fontsize=12)
+    first, second = (label.split('|', 1)[0].strip() for label in (reference_label, target_label))
+    fig.suptitle(f'{first} × {second}', fontsize=16)
+    return fig
+
+
+def render_history(datasets, calibrations, reference, out_dir, *, labels=None):
     """One full-sized figure per reference baseline; fixed cal across all days.
 
     datasets: (date label, compact data, mapping). Curves use a complex time
     mean of each day's fringe-stopped data, not an average of phase angles.
     """
-    import matplotlib.pyplot as plt
     from .fringe_stop import fringe_stop
     dest = Path(out_dir)
     common = sorted(set.intersection(*(set(map(int, c.ant_ids)) for c in calibrations.values())))
@@ -229,38 +281,20 @@ def render_history(datasets, calibrations, reference, out_dir):
         observed = _mean(fs['vis_stopped'][fs['time_mask']], axis=0)
         observed[~good] = np.nan
         comparisons.append((day, observed, fs['target_aids'], weights, data['freq_mhz']))
-    colors = ['#2459a6', '#cc7528', '#207c5b']
     for target in common:
         if target == reference:
             continue
-        fig, axes = plt.subplots(2, 1, figsize=(13, 7), sharex=True, layout='constrained')
         payload = {}
-        for day_index, (day, observed, targets, weights, freq) in enumerate(comparisons):
+        for day, observed, targets, weights, freq in comparisons:
             values = observed[:, targets.index(target)]
-            axes[0].plot(freq, np.angle(values), '.', ms=1.4, color=colors[day_index%3], label=day)
             payload[f'{day}_measured'] = values
             for name, w in weights.items():
                 corr = w[common.index(reference)] * w[common.index(target)].conj()
                 residual = np.angle(values*corr)
-                rms = float(np.sqrt(np.nanmean(residual**2)))
-                axes[1].plot(freq, residual, '.' if name=='candidate' else 'x', ms=1.7,
-                    alpha=1 if name=='candidate' else .35, color=colors[day_index%3],
-                    label=f'{day} · {name} · RMS {rms:.2f} rad')
                 payload[f'{day}_{name}_residual'] = residual
-                if day_index == 0:
-                    axes[0].plot(freq, np.angle(corr.conj()), '.', ms=1., color='#202d3c' if name=='candidate' else '#a4acb5', label=f'{name} prediction')
-        for ax in axes:
-            ax.set_ylim(-np.pi, np.pi)
-            ax.set_yticks([-np.pi,-np.pi/2,0,np.pi/2,np.pi], ['−π','−π/2','0','π/2','π'])
-            ax.grid(alpha=.18); ax.legend(fontsize=9, ncol=2)
-            ax.spines[['top','right']].set_visible(False)
-        axes[0].set_ylabel('Fringe-stopped phase (rad)')
-        axes[1].set(ylabel='SVD residual phase (rad)', xlabel='Frequency (MHz)')
-        axes[1].axhline(0, color='#596775', lw=.8)
         label = datasets[0][2].format_antenna
-        fig.suptitle(f'{label(reference)} × {label(target)} · cross-day validation\nSame candidate on every day · no static template reused', fontsize=13)
+        fig = history_figure(freq, payload, [d[0] for d in datasets], label(reference), label(target), **(labels or {}))
         fig.savefig(dest/f'history-{reference}-{target}.png', dpi=125, facecolor='white')
-        plt.close(fig)
         np.savez_compressed(dest/f'history-{reference}-{target}.npz', freq_mhz=freq, **payload)
     return dict(reference=reference, baselines=len(common)-1, days=[d[0] for d in datasets], static_used=False)
 

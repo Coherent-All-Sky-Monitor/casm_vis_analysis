@@ -59,10 +59,19 @@ modifies the saved phase calibration or an existing beam product.
 
 ## Independent checks
 
-`render_history(datasets, calibrations, reference, out_dir)` saves one readable
-two-row figure per common reference baseline: fringe-stopped phase with fixed
-calibration predictions, and residual phase. Every day uses the same candidate;
-it does not fit away inter-day changes or silently reuse a static template.
+`render_history(datasets, calibrations, reference, out_dir, *, labels=None)` saves
+one figure per common reference baseline. The upper panel compares each day's
+fringe-stopped phase. Two lower panels show selected-solution and reference
+residuals separately, with a shared date-only legend and large colour markers.
+The same candidate applies to every day; no static template is reused across
+days. Original native-channel means and residuals remain in the NPZ files.
+
+`history_figure(freq, payload, days, reference_label, target_label, *,
+candidate_label='Selected solution', reference_weights_label='Reference weights')`
+can redraw those saved arrays without reading visibilities. It displays only
+`candidate` and `reference` residual keys; historical alternate-subtraction
+arrays remain in the source file. The caller supplies accurate calibration
+labels; this library does not infer deployment state.
 
 `compare_amplitude_transit` uses saved amplitude profiles with a fixed transit
 pointing and a common antenna/channel/time selection. It saves each scheme's
