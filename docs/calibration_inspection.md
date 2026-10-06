@@ -73,9 +73,51 @@ can redraw those saved arrays without reading visibilities. It displays only
 arrays remain in the source file. The caller supplies accurate calibration
 labels; this library does not infer deployment state.
 
-`compare_amplitude_transit` uses saved amplitude profiles with a fixed transit
-pointing and a common antenna/channel/time selection. It saves each scheme's
-signed cross-power dynamic spectrum and a comparison of absolute power and
-source excess / measured off-window RMS. The latter includes sky/RFI variation,
-not just thermal noise. These plots do not establish a detection or a superior
-calibration. Phase/calibration objects remain unchanged.
+## Stationary transit review
+
+From October 5, 2026, `stationary_check` and `compare_amplitude_transit` use
+`calibration_transit` for common backgrounds, power scales and white plots.
+The latter applies saved amplitude profiles to the same fixed pointing and
+matched antenna/channel/time selection. Phase/calibration objects remain unchanged.
+
+For non-solar targets, background samples lie beyond the configured ±90 minutes
+by default and have geometric Sun altitude below 0° at the integration timestamp.
+At least two integrations must survive on each side. Insufficient coverage
+raises an error; daytime samples are never substituted. Sun self-checks use
+outer windows and warn about remaining solar response. Neither rule screens
+other sources or RFI. This background is separate from the solve's night template.
+Altitude uses installed IERS data offline; no network update is attempted.
+
+For voltage weights `w_i(f)`, the raw signed cross sum is
+`2 Re sum(i<j) w_i conj(w_j) V_ij`, including fixed geometric steering.
+The default **Weighted mean** divides each channel by
+`D(f) = 2 sum(i<j) |w_i| |w_j| = (sum_i |w_i|)^2 - sum_i |w_i|^2`.
+An arbitrary common voltage-weight scale cancels. Receiver gains and relative
+antenna weighting remain; this is not a Jy conversion or a sensitivity ranking.
+**Raw sum** retains the original scaling. Both displays remove the selected
+background's time mean in every channel before taking the broadband mean.
+The lower comparison is `(power - background mean) / std(background, ddof=1)`;
+sky and interference contribute to that standard deviation.
+
+Dynamic spectra use symmetric 99th-percentile absolute-power colour limits.
+Colorbar extensions identify saturated tails; all values remain in the saved
+arrays, power curve and statistics. Gaps between selected native channels stay
+blank instead of extending neighbouring pixels across them. Each scheme gets a selectable waterfall
+and power curve. Optional **Peak time vs frequency** has one panel: the strongest
+three-integration-smoothed feature per admitted channel and the ideal
+equal-amplitude array prediction. It does not identify a source or measure an
+instrumental clock delay. There is no duplicate residual-time panel.
+
+Schema 2 NPZs retain raw summed `spectrum` `(time, selected_frequency)` and add
+`pair_weight_sum` `(selected_frequency,)`, `off_mask` and `sun_alt_deg` `(time,)`.
+Calibration NPZ timing metrics and `light_curve` use the weighted mean; amplitude
+NPZ `light_curve` retains the raw spectrum mean for compatibility. The rendered
+curve is derived by `prepare_series`, not copied from legacy metrics.
+For saved fixed-pointing products, changing the background only changes a
+time-constant channel offset. Recentring cancels the old subtracted template to
+saved precision, so legacy arrays can be reviewed without raw visibility reads.
+The caller must recover the actual saved weight amplitudes before displaying
+a legacy weighted mean; missing normalization allows only the raw-sum view.
+
+Tests: `tests/test_calibration_transit.py`, `tests/test_calibration_checks.py`
+and `tests/test_calibration_inspection.py`, using synthetic fixtures.

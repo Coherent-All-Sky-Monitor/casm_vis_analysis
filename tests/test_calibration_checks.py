@@ -74,7 +74,9 @@ def test_exact_model_unity_for_colocated_array():
     np.testing.assert_allclose(result, 1)
 
 
-def test_stationary_plot_common_mask_and_artifacts(tmp_path):
+def test_stationary_plot_common_mask_and_artifacts(tmp_path, monkeypatch):
+    from casm_vis_analysis import calibration_transit
+    monkeypatch.setattr(calibration_transit, 'source_altaz', lambda source, times: (np.full(len(times), -20.), np.zeros(len(times))))
     minutes = np.linspace(-150, 150, 61)
     freq = np.array([460., 450., 440., 430.])
     rng = np.random.default_rng(12)
@@ -86,12 +88,14 @@ def test_stationary_plot_common_mask_and_artifacts(tmp_path):
         mapping(), {'candidate': first, 'reference': second}, 'cyg-a', 1.79e9, tmp_path)
     assert output['common_channels'] == 3
     assert (tmp_path / 'transit-candidate.png').is_file()
-    assert (tmp_path / 'chromaticity-candidate.png').is_file()
+    assert (tmp_path / 'peak-time-candidate.png').is_file()
     assert (tmp_path / 'comparison.png').is_file()
     from matplotlib.image import imread
-    for filename in ('transit-candidate.png', 'chromaticity-candidate.png', 'comparison.png'):
+    for filename in ('transit-candidate.png', 'peak-time-candidate.png', 'comparison.png'):
         np.testing.assert_allclose(imread(tmp_path / filename)[0, 0, :3], 1)
     candidate = np.load(tmp_path / 'transit-candidate.npz')
     reference = np.load(tmp_path / 'transit-reference.npz')
     np.testing.assert_allclose(candidate['spectrum'], reference['spectrum'])
     assert candidate['spectrum'].max() < 3
+    np.testing.assert_allclose(candidate['pair_weight_sum'], 2)
+    assert output['schema_version'] == 2 and output['background']['valid']

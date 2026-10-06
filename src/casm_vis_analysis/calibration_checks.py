@@ -148,8 +148,8 @@ def peak_metrics(times_minutes, spectrum, model, off_mask, minimum_snr=5):
     if np.count_nonzero(off_mask) < 4:
         raise ValueError('Need at least four off-source integrations, on both sides of transit')
     smooth = uniform_filter1d(spectrum, size=3, axis=0, mode='nearest')
-    background = np.median(spectrum[off_mask], axis=0)
-    noise = np.std(spectrum[off_mask], axis=0)
+    background = np.mean(spectrum[off_mask], axis=0)
+    noise = np.std(spectrum[off_mask], axis=0, ddof=1)
     indices = np.argmax(smooth, axis=0)
     heights = smooth[indices, np.arange(spectrum.shape[1])] - background
     snr = np.divide(heights, noise, out=np.zeros_like(heights), where=noise > 0)
@@ -158,7 +158,7 @@ def peak_metrics(times_minutes, spectrum, model, off_mask, minimum_snr=5):
     expected = times_minutes[np.argmax(model, axis=0)]
     residual = measured - expected
     light = np.mean(spectrum, axis=1)
-    light -= np.median(light[off_mask])
+    light -= np.mean(light[off_mask])
     peak = int(np.argmax(light))
     half = light[peak] / 2
     left = np.flatnonzero(light[:peak] < half)
@@ -169,7 +169,7 @@ def peak_metrics(times_minutes, spectrum, model, off_mask, minimum_snr=5):
         left_time = np.interp(half, light[lower:lower + 2], times_minutes[lower:lower + 2])
         right_time = np.interp(half, light[upper - 1:upper + 1][::-1], times_minutes[upper - 1:upper + 1][::-1])
         width = float(right_time - left_time)
-    rms = np.std(light[off_mask])
+    rms = np.std(light[off_mask], ddof=1)
     return dict(peak_minutes=measured, expected_minutes=expected, residual_minutes=residual,
                 accepted=accepted, snr=snr, light_curve=light,
                 summary=dict(accepted_channels=int(accepted.sum()), total_channels=len(accepted),
@@ -182,12 +182,13 @@ def peak_metrics(times_minutes, spectrum, model, off_mask, minimum_snr=5):
 
 def stationary_check(data, mapping, calibrations, source, center, out_dir,
                      band=(384, 512), off_minutes=90, minimum_snr=5):
-    """Stationary-beam dynamic spectra and chromaticity with one common mask."""
-    import matplotlib.pyplot as plt
-    times = (data['time_unix'] - center) / 60
-    off = np.abs(times) >= off_minutes
-    if (times < -off_minutes).sum() < 2 or (times > off_minutes).sum() < 2:
-        raise ValueError('Off-source background requires at least two integrations on each side')
+    """Stationary-beam review with Sun-screened backgrounds and weighted means."""
+    from .calibration_inspection import aligned_weights
+    from .calibration_transit import (background_selection, pair_weight_sum, prepare_series,
+                                      transit_figure, timing_figure, comparison_figure)
+    off, sun_alt, background_info = background_selection(data['time_unix'], center, source, off_minutes)
+    if not background_info['valid']:
+        raise ValueError(background_info['reason'])
     freq = data['freq_mhz']
     good = (freq >= band[0]) & (freq <= band[1])
     for cal in calibrations.values():
@@ -207,65 +208,27 @@ def stationary_check(data, mapping, calibrations, source, center, out_dir,
     model = exact_stationary_response(mapping, source, data['time_unix'], freq[good], center)
     dest = Path(out_dir)
     dest.mkdir(parents=True, exist_ok=True)
-    results = {}
-    with plt.style.context(['default', {'font.size': 12, 'axes.labelsize': 13, 'axes.titlesize': 13, 'xtick.labelsize': 11, 'ytick.labelsize': 11, 'axes.spines.top': False, 'axes.spines.right': False, 'axes.grid': True, 'grid.alpha': .18}]):
-        comparison, compare_axes = plt.subplots(2, 1, figsize=(12, 7), layout='constrained', sharex=True)
-        for label, cal in calibrations.items():
-            spectrum = beam_power_vs_time(working, mapping, pointing, cal_weights=cal, return_spectrum=True)['spectrum']['stationary']
-            metrics = peak_metrics(times, spectrum, model, off, minimum_snr)
-            results[label] = metrics['summary']
-            light = metrics['light_curve']
-            normal = light / np.max(light) if np.max(light) > 0 else light * np.nan
-            full = np.full((len(times), len(freq)), np.nan)
-            full[:, good] = spectrum
-            fig, axes = plt.subplots(2, 1, figsize=(12, 8), layout='constrained', sharex=True, gridspec_kw={'height_ratios': [2, 1]})
-            limit = float(np.nanpercentile(np.abs(spectrum), 99)) or 1
-            mesh = axes[0].pcolormesh(times / 60, freq, full.T, cmap='RdBu_r', vmin=-limit, vmax=limit, shading='auto', rasterized=True)
-            fig.colorbar(mesh, ax=axes[0], label='Cross-only power\n(arbitrary units)', pad=.02)
-            axes[0].set(ylabel='Frequency (MHz)', title=f'{source} · fixed transit pointing · {label}')
-            axes[1].plot(times / 60, normal, color='#6941a5', label='Measured / peak')
-            model_light = model.mean(axis=1)
-            axes[1].plot(times / 60, model_light / model_light.max(), '--', color='#bd5b13', label='Exact ideal geometry')
-            for axis in axes:
-                axis.axvline(0, color='#526173', ls=':', lw=1)
-                axis.axvline(metrics['summary']['broadband_peak_min'] / 60, color='#6941a5', ls='--', lw=.8)
-                axis.axvspan(times[0] / 60, -off_minutes / 60, color='#91a0b0', alpha=.08)
-                axis.axvspan(off_minutes / 60, times[-1] / 60, color='#91a0b0', alpha=.08)
-            axes[1].set(xlabel='Hours from meridian transit', ylabel='Peak-normalized power')
-            summary = metrics['summary']
-            width = 'unavailable' if summary['fwhm_min'] is None else f"{summary['fwhm_min'] / 60:.2f} h"
-            ratio = 'unavailable' if summary['peak_off_rms'] is None else f"{summary['peak_off_rms']:.1f}"
-            axes[1].set_title(f"Peak {summary['broadband_peak_min']:+.1f} min · FWHM {width} · peak/off-RMS {ratio}", fontsize=10, loc='left', pad=12)
-            axes[1].legend(fontsize=9)
-            fig.savefig(dest / f'transit-{label}.png', dpi=130, facecolor='white')
-            plt.close(fig)
-            chromatic, timing_axes = plt.subplots(2, 1, figsize=(12, 7), layout='constrained', sharex=True)
-            timing_axes[0].plot(freq[good], metrics['peak_minutes'], '.', ms=3, color='#6941a5', label=f'Measured, S/N ≥ {minimum_snr:g}')
-            timing_axes[0].plot(freq[good], metrics['expected_minutes'], color='#bd5b13', label='Exact ideal geometry')
-            timing_axes[0].set(ylabel='Peak time (min)', title=f'{label} · channel peak alignment ({metrics["summary"]["accepted_channels"]}/{good.sum()} accepted)')
-            timing_axes[0].legend()
-            timing_axes[1].plot(freq[good], metrics['residual_minutes'], '.', ms=3, color='#6941a5')
-            timing_axes[1].axhline(0, color='#bd5b13', ls='--')
-            timing_axes[1].set(xlabel='Frequency (MHz)', ylabel='Measured − model (min)')
-            chromatic.savefig(dest / f'chromaticity-{label}.png', dpi=130, facecolor='white')
-            plt.close(chromatic)
-            compare_axes[0].plot(times / 60, light, label=label)
-            compare_axes[1].plot(times / 60, normal, label=label)
-            np.savez_compressed(dest / f'transit-{label}.npz', time_unix=data['time_unix'], freq_mhz=freq[good],
-                                spectrum=spectrum, exact_response=model, **{key: value for key, value in metrics.items() if key != 'summary'})
-        compare_axes[0].set(ylabel='Absolute cross-only power', title='Same antennas, integrations, channel mask and off-source window')
-        compare_axes[1].set(ylabel='Peak-normalized shape', xlabel='Hours from meridian transit')
-        for axis in compare_axes:
-            axis.axvline(0, color='#526173', ls=':')
-            axis.legend()
-        comparison.savefig(dest / 'comparison.png', dpi=130, facecolor='white')
-        plt.close(comparison)
-    return dict(metrics=results, pointing_altaz=[float(altitude[0]), float(azimuth[0])],
+    results, curves = {}, {}
+    for label, cal in calibrations.items():
+        spectrum = beam_power_vs_time(working, mapping, pointing, cal_weights=cal, return_spectrum=True)['spectrum']['stationary']
+        denominator = pair_weight_sum(aligned_weights(cal, sorted(mapping.active_antennas()), freq))[good]
+        series = prepare_series(data['time_unix'], freq[good], spectrum, center, off,
+                                pair_sum=denominator, model=model, minimum_snr=minimum_snr)
+        metrics = series['metrics']
+        results[label], curves[label] = metrics['summary'], series
+        transit_figure(series, f'{source} · {label} · fixed transit pointing').savefig(dest / f'transit-{label}.png', dpi=130)
+        timing_figure(series, label).savefig(dest / f'peak-time-{label}.png', dpi=130)
+        np.savez_compressed(dest / f'transit-{label}.npz', time_unix=data['time_unix'], freq_mhz=freq[good],
+                            spectrum=spectrum, exact_response=model, pair_weight_sum=denominator,
+                            off_mask=off, sun_alt_deg=sun_alt, schema_version=2,
+                            **{key: value for key, value in metrics.items() if key != 'summary'})
+    comparison_figure(curves, f'{source} · calibration comparison').savefig(dest / 'comparison.png', dpi=130)
+    return dict(schema_version=2, background=background_info, metrics=results, pointing_altaz=[float(altitude[0]), float(azimuth[0])],
                 center_unix=center, common_channels=int(good.sum()), off_integrations=int(off.sum()),
                 antennas=sorted(mapping.active_antennas()),
                 warnings=['Cross-only signed power; not absolute sensitivity or SEFD.',
                           'Exact model uses ideal equal antenna amplitudes, without element beam or sky contaminants.',
-                          'Channel timings use a three-integration boxcar and S/N selection, not a precision fit.',
+                          'Channel timings use a three-integration boxcar and peak/background-std selection, not a precision fit.',
                           'A smooth transit or aligned peaks alone does not prove a calibration correct.'])
 
 

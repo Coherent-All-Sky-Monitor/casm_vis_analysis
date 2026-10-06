@@ -303,13 +303,14 @@ def compare_amplitude_transit(data, mapping, cal, profile_file, source, center, 
                               band=(390.625, 484.375), off_minutes=90):
     """Fixed pointing, matched samples/mask, four saved amplitude experiments.
 
-    Plot absolute cross-power and source excess divided by measured off-window
-    RMS. This is not an absolute sensitivity/SEFD measurement. No weights files
+    Plot weighted-mean cross-power and excess divided by background standard
+    deviation. This is not an absolute sensitivity/SEFD measurement. No weights files
     are written, and the calibration object is not mutated.
     """
     from types import SimpleNamespace
-    import matplotlib.pyplot as plt
     from .beam_power import beam_power_vs_time
+    from .calibration_transit import (background_selection, pair_weight_sum, prepare_series,
+                                      transit_figure, comparison_figure, SCHEME_LABELS)
     with np.load(profile_file, allow_pickle=False) as saved:
         profiles = dict(saved)
     freq = np.asarray(data['freq_mhz'])
@@ -326,43 +327,30 @@ def compare_amplitude_transit(data, mapping, cal, profile_file, source, center, 
         good &= np.isfinite(profile).all(axis=0)
     if good.sum() < 3:
         raise ValueError('Fewer than three channels survive all amplitude schemes')
-    minutes = (np.asarray(data['time_unix'])-center)/60
-    off = abs(minutes) >= off_minutes
-    if (minutes < -off_minutes).sum() < 2 or (minutes > off_minutes).sum() < 2:
-        raise ValueError('Amplitude comparison needs off-source integrations on both sides')
+    off, sun_alt, background_info = background_selection(data['time_unix'], center, source, off_minutes)
+    if not background_info['valid']:
+        raise ValueError(background_info['reason'])
     background = np.median(data['vis'][off].real,axis=0)+1j*np.median(data['vis'][off].imag,axis=0)
     working = {**data, 'vis': data['vis']-background[None], 'freq_mask': ~good}
     from .sources import source_altaz
     alt, az = source_altaz(source, np.array([center]))
     point = [('fixed', float(alt[0]), float(az[0]))]
     dest = Path(out_dir)
-    fig, axes = plt.subplots(2,1,figsize=(13,8),sharex=True,layout='constrained')
-    output = {}
-    colors = ['#2459a6','#cc7528','#207c5b','#9b3a40']
-    for (name, amplitude), color in zip(available.items(),colors):
+    output, curves = {}, {}
+    for name, amplitude in available.items():
         trial = SimpleNamespace(weights=np.nan_to_num(weights*amplitude), ant_ids=ants,
                                 frequencies_hz=freq*1e6)
         result = beam_power_vs_time(working,mapping,point,cal_weights=trial,return_spectrum=True)
         spectrum = result['spectrum']['fixed']
         light = spectrum.mean(axis=1)
-        baseline = float(np.mean(light[off])); rms = float(np.std(light[off],ddof=1))
-        normalized = (light-baseline)/rms if rms>0 else np.full_like(light,np.nan)
-        axes[0].plot(minutes/60,light,color=color,label=name)
-        axes[1].plot(minutes/60,normalized,color=color,label=name)
-        output[name] = dict(off_rms=rms, peak_over_off_rms=float(np.nanmax(normalized)) if rms>0 else None)
-        image, ax = plt.subplots(figsize=(13,4.5),layout='constrained')
-        limit = max(float(np.max(np.abs(spectrum))),1e-12)
-        mesh=ax.pcolormesh(minutes/60,result['freq_mhz'],spectrum.T,cmap='RdBu_r',vmin=-limit,vmax=limit,shading='auto',rasterized=True)
-        image.colorbar(mesh,ax=ax,label='Cross-power (counts)')
-        ax.set(xlabel='Hours from meridian transit',ylabel='Frequency (MHz)',title=f'{source} · {name} · fixed transit pointing')
-        ax.axvline(0,color='#405369',ls=':',lw=1)
-        image.savefig(dest/f'amplitude-{name}-transit.png',dpi=130,facecolor='white');plt.close(image)
-        np.savez_compressed(dest/f'amplitude-{name}-transit.npz',time_unix=data['time_unix'],freq_mhz=result['freq_mhz'],spectrum=spectrum,light_curve=light,off_mask=off)
-    for ax in axes:
-        ax.axvline(0,color='#405369',ls=':',lw=1);ax.grid(alpha=.18);ax.legend(ncol=4)
-        ax.spines[['top','right']].set_visible(False)
-    axes[0].set(ylabel='Cross-power (counts)',title=f'{source} · amplitude schemes · identical antennas and channels')
-    axes[1].set(xlabel='Hours from meridian transit',ylabel='Source excess / off-window RMS')
-    fig.savefig(dest/'amplitude-comparison.png',dpi=130,facecolor='white');plt.close(fig)
-    return dict(schemes=output,antennas=ants,channels=int(good.sum()),
-                note='Max-normalized voltage amplitudes; measured off-window RMS includes sky/RFI, not just thermal noise.')
+        denominator = pair_weight_sum(amplitude)[good]
+        series = prepare_series(data['time_unix'], result['freq_mhz'], spectrum, center, off, pair_sum=denominator)
+        curves[SCHEME_LABELS[name]] = series
+        output[name] = dict(off_rms=series['off_rms'], peak_over_off_rms=series['peak_over_off_rms'])
+        transit_figure(series, f'{source} · {SCHEME_LABELS[name]}').savefig(dest/f'amplitude-{name}-transit.png', dpi=130)
+        np.savez_compressed(dest/f'amplitude-{name}-transit.npz',time_unix=data['time_unix'],freq_mhz=result['freq_mhz'],
+                            spectrum=spectrum,light_curve=light,off_mask=off,pair_weight_sum=denominator,
+                            sun_alt_deg=sun_alt,schema_version=2)
+    comparison_figure(curves, f'{source} · amplitude schemes').savefig(dest/'amplitude-comparison.png', dpi=130)
+    return dict(schema_version=2, background=background_info, schemes=output,antennas=ants,channels=int(good.sum()),
+                note='Displayed weighted means divide each channel by its total baseline amplitude weight; background std includes sky/RFI.')

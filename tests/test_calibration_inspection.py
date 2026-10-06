@@ -126,7 +126,8 @@ def test_saved_svd_correction_and_static_separation(tmp_path, monkeypatch):
 
 
 def test_amplitude_transit_same_samples_mask_and_no_cal_mutation(tmp_path, monkeypatch):
-    from casm_vis_analysis import sources
+    from casm_vis_analysis import sources, calibration_transit
+    monkeypatch.setattr(calibration_transit,'source_altaz',lambda source,times:(np.full(len(times),50.),np.full(len(times),180.)))
     ants, nf = [9,10,12], 8
     mapping = AntennaMapping(pd.DataFrame(dict(antenna_id=ants,snap_id=[0,0,1],adc=[0,1,0],
         packet_index=[0,1,2],x_m=[0.,0.,0.],y_m=[0.,0.,0.],z_m=[0.,0.,0.],functional=[1,1,1])))
@@ -155,3 +156,5 @@ def test_amplitude_transit_same_samples_mask_and_no_cal_mutation(tmp_path, monke
         with np.load(tmp_path/f'amplitude-{name}-transit.npz') as saved:
             np.testing.assert_allclose(saved['light_curve'],scale*(signal-2),atol=1e-5)
             np.testing.assert_array_equal(saved['freq_mhz'],freq[:-1])
+            np.testing.assert_allclose(saved['pair_weight_sum'],scale)
+    assert result['schema_version'] == 2 and result['background']['warning']
