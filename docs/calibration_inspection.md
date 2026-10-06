@@ -81,9 +81,12 @@ The latter applies saved amplitude profiles to the same fixed pointing and
 matched antenna/channel/time selection. Phase/calibration objects remain unchanged.
 
 For non-solar targets, background samples lie beyond the configured ±90 minutes
-by default and have geometric Sun altitude below 0° at the integration timestamp.
-At least two integrations must survive on each side. Insufficient coverage
-raises an error; daytime samples are never substituted. Sun self-checks use
+by default, preferring geometric Sun altitude ≤ −10° at the integration timestamp
+(October 6). Four total samples suffice, with one-sided background explicitly
+labelled. If dark samples are insufficient, use Sun-down samples if at least
+four exist, otherwise all outer samples, and warn about bright solar contamination.
+The warning keeps beamforming available; fewer than four total samples is an error.
+No new rank-1/noise channel mask or antenna-delay alarm is added. Sun self-checks use
 outer windows and warn about remaining solar response. Neither rule screens
 other sources or RFI. This background is separate from the solve's night template.
 Altitude uses installed IERS data offline; no network update is attempted.

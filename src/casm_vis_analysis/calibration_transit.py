@@ -29,10 +29,11 @@ def pair_weight_sum(weights):
 
 
 def background_selection(time_unix, center, source, off_minutes=90, sun_alt=None):
-    """Common outer-window samples; non-solar sources additionally require Sun <0°.
+    """Prefer Sun <=-10 degrees for non-solar backgrounds, with warning fallback.
 
-    At least two samples on each side and four in total are required. Invalid
-    selections are reported explicitly, never replaced by Sun-up samples.
+    Four samples in total are required; a one-sided background is labelled.
+    If dark samples are insufficient, use Sun-down or all outer samples and
+    explicitly warn about solar contamination. Beamforming remains available.
     Altitudes are geometric at saved sample timestamps (not a terrain horizon).
     """
     times = np.asarray(time_unix, dtype=float)
@@ -52,9 +53,20 @@ def background_selection(time_unix, center, source, off_minutes=90, sun_alt=None
     minutes = (times - center) / 60
     outer = np.abs(minutes) >= off_minutes
     solar = source.lower() == 'sun'
-    off = outer & (np.ones(len(times), bool) if solar else sun_alt < 0)
+    off = outer if solar else outer & (sun_alt <= -10)
+    policy = 'outer_window' if solar else 'dark'
+    warnings = ['Solar self-check: the outer windows may contain solar response.'] if solar else []
+    if not solar and off.sum() < 4:
+        down = outer & (sun_alt < 0)
+        off = down if down.sum() >= 4 else outer
+        policy = 'sun_down_fallback' if down.sum() >= 4 else 'solar_contaminated'
+        warnings.append('Too few background samples with Sun ≤ −10°. Expect bright solar contamination; beamforming remains available.')
     before, after = int((off & (minutes < 0)).sum()), int((off & (minutes > 0)).sum())
-    valid = before >= 2 and after >= 2
+    valid = int(off.sum()) >= 4
+    if valid and (before == 0 or after == 0):
+        warnings.append(('Post-transit-only' if before == 0 else 'Pre-transit-only') + ' background; before/after background drift cannot be checked.')
+    if not solar and np.any(sun_alt > -10) and policy == 'dark':
+        warnings.append('Part of this transit window has Sun above −10°; expect solar contamination there. Those samples are excluded from the background.')
     groups = np.split(np.flatnonzero(off), np.flatnonzero(np.diff(np.flatnonzero(off)) > 1)+1)
     intervals = []
     for indices in groups:
@@ -65,13 +77,14 @@ def background_selection(time_unix, center, source, off_minutes=90, sun_alt=None
         for name, zone in [('utc', timezone.utc), ('local', ZoneInfo('America/Los_Angeles'))]:
             interval[name] = [datetime.fromtimestamp(float(times[i]), zone).isoformat() for i in indices[[0, -1]]]
         intervals.append(interval)
-    info = dict(valid=valid, policy='outer_window' if solar else 'sun_down', samples=int(off.sum()),
+    info = dict(valid=valid, policy=policy, sun_limit_deg=-10, samples=int(off.sum()),
                 before_samples=before, after_samples=after, outer_samples=int(outer.sum()),
-                excluded_sun_up=int((outer & ~off).sum()), intervals=intervals,
+                excluded_sun_up=int((outer & ~off & (sun_alt >= 0)).sum()),
+                excluded_solar=int((outer & ~off).sum()), intervals=intervals,
                 off_minutes=float(off_minutes),
                 note='Sun check uses geometric altitude at each integration timestamp.',
-                warning='Solar self-check: the outer windows may contain solar response.' if solar else None,
-                reason=None if valid else f"Too few {'outer-window' if solar else 'Sun-down'} background samples on both sides. Choose another transit date or background boundary.")
+                warning=' '.join(warnings) or None,
+                reason=None if valid else 'Fewer than four outer-window samples. Choose a wider window or another background boundary.')
     return off, sun_alt, info
 
 
@@ -90,8 +103,8 @@ def prepare_series(time_unix, freq_mhz, spectrum, center, off, *, pair_sum=None,
     off = np.asarray(off, dtype=bool)
     if values.shape != (len(times), len(freq)) or off.shape != times.shape or not np.isfinite(values).all():
         raise ValueError('Invalid saved transit spectrum')
-    if np.count_nonzero(off & (times < center)) < 2 or np.count_nonzero(off & (times > center)) < 2:
-        raise ValueError('Need background samples on both sides of transit')
+    if np.count_nonzero(off) < 4:
+        raise ValueError('Need at least four background samples')
     values = values - values[off].mean(axis=0)
     if scale == 'mean':
         denominator = np.asarray(pair_sum, dtype=float)

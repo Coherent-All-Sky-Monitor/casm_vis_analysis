@@ -32,7 +32,7 @@ def test_weighted_mean_removes_arbitrary_scale_but_raw_sum_retained():
             np.testing.assert_allclose(mean['excess'], raw['excess'], atol=1e-10)
 
 
-def test_sun_screening_requires_both_sides_and_solar_exception():
+def test_sun_screening_labels_one_sided_and_solar_exception():
     times, _, _, outer = fixture()
     sun = np.full(len(times), -20.)
     sun[:15] = 5
@@ -42,7 +42,8 @@ def test_sun_screening_requires_both_sides_and_solar_exception():
     assert sum(i['samples'] for i in info['intervals']) == off.sum()
     sun[times < 0] = 10
     off, _, info = background_selection(times, 0, 'cyg-a', sun_alt=sun)
-    assert not info['valid'] and info['before_samples'] == 0
+    assert info['valid'] and info['before_samples'] == 0
+    assert 'Post-transit-only' in info['warning'] and info['policy'] == 'dark'
     off, _, info = background_selection(times, 0, 'sun', sun_alt=sun)
     assert info['valid'] and info['warning'] and info['policy'] == 'outer_window'
     np.testing.assert_array_equal(off, outer)
@@ -56,11 +57,21 @@ def test_recenter_removes_old_constant_template_and_requires_normalizer():
     np.testing.assert_allclose(first['spectrum'], second['spectrum'], atol=1e-11)
     with pytest.raises(ValueError, match='normalization'):
         prepare_series(times, freq, values, 0, off)
-    invalid = off.copy()
-    invalid[times < -149*60] = False
-    invalid[(times < 0) & (times > -147*60)] = False
-    with pytest.raises(ValueError, match='both sides'):
+    invalid = np.zeros(len(times), dtype=bool)
+    invalid[:3] = True
+    with pytest.raises(ValueError, match='four background'):
         prepare_series(times, freq, values, 0, invalid, scale='sum')
+
+
+def test_bright_sun_fallback_warns_without_blocking_or_masking_channels():
+    times, freq, values, outer = fixture()
+    for altitude, policy in [(-5., 'sun_down_fallback'), (20., 'solar_contaminated')]:
+        off, _, info = background_selection(times, 0, 'cyg-a', sun_alt=np.full(len(times), altitude))
+        assert info['valid'] and info['policy'] == policy
+        assert 'bright solar contamination' in info['warning']
+        np.testing.assert_array_equal(off, outer)
+        series = prepare_series(times, freq, values, 0, off, scale='sum')
+        assert series['spectrum'].shape == values.shape
 
 
 def test_percentile_contrast_preserves_outlier_and_single_timing_panel():
